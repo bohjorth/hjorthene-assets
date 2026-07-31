@@ -1,0 +1,19 @@
+{
+  "name": "hjorthene-assets",
+  "version": "0.1.0",
+  "description": "Digital Asset Management for Hjorthene",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+    "migrate": "node src/database/migrate.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "dotenv": "^16.4.5",
+    "helmet": "^8.0.0",
+    "compression": "^1.7.5",
+    "morgan": "^1.10.0"
+  }
+}
