@@ -1,6 +1,6 @@
 const express = require('express');
 const session = require('express-session');
-const SQLiteStore = require('connect-sqlite3')(session);
+const SqliteSessionStore = require('./sessionStore');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -17,7 +17,7 @@ app.use(cors({ origin: config.baseUrl, credentials: true }));
 app.use(express.json());
 app.use(
   session({
-    store: new SQLiteStore({ dir: config.dataDir, db: 'sessions.db' }),
+    store: new SqliteSessionStore({ dir: config.dataDir }),
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
