@@ -7,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import indexRouter from "../routes/index.js";
+import assetsRouter from "../routes/assets.js";
 import healthRouter from "../routes/health.js";
 
 const app = express();
@@ -28,6 +29,7 @@ app.set("views", path.join(__dirname, "../views"));
 app.use("/static", express.static(path.join(__dirname, "../public")));
 
 app.use("/", indexRouter);
+app.use("/assets", assetsRouter);
 app.use("/health", healthRouter);
 
 export default app;
