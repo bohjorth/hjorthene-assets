@@ -1,7 +1,0 @@
-node_modules/
-.env
-logs/
-storage/
-database/
-*.log
-.DS_Store
