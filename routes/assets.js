@@ -1,15 +1,8 @@
 import { Router } from "express";
-import AssetService from "../src/services/AssetService.js";
+import AssetController from "../src/controllers/AssetController.js";
 
 const router = Router();
 
-router.get("/", (req, res) => {
-    const assets = AssetService.getAll();
-
-    res.render("assets/index", {
-        title: "Assets",
-        assets
-    });
-});
+router.get("/", AssetController.index);
 
 export default router;

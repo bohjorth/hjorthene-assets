@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 
 import indexRouter from "../routes/index.js";
 import healthRouter from "../routes/health.js";
+import assetsRouter from "../routes/assets.js";
 
 const app = express();
 
@@ -29,5 +30,6 @@ app.use("/static", express.static(path.join(__dirname, "../public")));
 
 app.use("/", indexRouter);
 app.use("/health", healthRouter);
+app.use("/assets", assetsRouter);
 
 export default app;
