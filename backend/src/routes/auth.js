@@ -7,6 +7,7 @@ const { logEvent } = require('../utils/log');
 const router = express.Router();
 
 router.get('/login', async (req, res, next) => {
+  if (config.devNoAuth) return res.redirect('/');
   try {
     const client = await getClient();
     const state = newState();
@@ -61,6 +62,7 @@ router.post('/logout', (req, res) => {
   const user = req.session.user;
   if (user) logEvent('logout', `${user.name} logged out`, user.id);
   req.session.destroy(() => {
+    if (config.devNoAuth) return res.json({ logoutUrl: '/' });
     const issuer = config.authentik.issuerUrl.replace(/\/$/, '');
     const logoutUrl = `${issuer}/end-session/?redirect_uri=${encodeURIComponent(
       config.authentik.logoutRedirect

@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 
 const config = require('./config');
-require('./db'); // ensures schema is initialized
+const db = require('./db'); // ensures schema is initialized
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 
@@ -29,6 +29,23 @@ app.use(
     },
   })
 );
+
+if (config.devNoAuth) {
+  console.warn('⚠️  DEV_NO_AUTH er slået til - alle besøgende logges automatisk ind som test-admin. Brug KUN til test.');
+  app.use((req, res, next) => {
+    if (!req.session.user) {
+      let user = db.prepare('SELECT * FROM users WHERE sub = ?').get('dev-local');
+      if (!user) {
+        const info = db
+          .prepare('INSERT INTO users (sub, email, name, role, last_login_at) VALUES (?, ?, ?, ?, datetime(\'now\'))')
+          .run('dev-local', 'dev@localhost', 'Dev Admin', 'admin');
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+      }
+      req.session.user = { id: user.id, email: user.email, name: user.name, role: user.role };
+    }
+    next();
+  });
+}
 
 app.use('/auth', require('./routes/auth'));
 app.use('/api/dashboard', require('./routes/dashboard'));

@@ -13,6 +13,7 @@ module.exports = {
   port: parseInt(req('PORT', '4000'), 10),
   baseUrl: req('BASE_URL', 'http://localhost:4000'),
   sessionSecret: req('SESSION_SECRET', 'dev-secret-change-me'),
+  devNoAuth: req('DEV_NO_AUTH', 'false') === 'true',
 
   uploadDir: path.resolve(req('UPLOAD_DIR', './uploads')),
   dataDir: path.resolve(req('DATA_DIR', './data')),
