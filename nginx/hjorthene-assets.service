@@ -1,0 +1,18 @@
+# Kopier til /etc/systemd/system/hjorthene-assets.service
+# Aktiver med: sudo systemctl daemon-reload && sudo systemctl enable --now hjorthene-assets
+
+[Unit]
+Description=Hjorthene Assets backend
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/hjorthene-assets/backend
+ExecStart=/usr/bin/node src/server.js
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=/var/www/hjorthene-assets/backend/.env
+
+[Install]
+WantedBy=multi-user.target
