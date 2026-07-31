@@ -1,0 +1,45 @@
+<%- include('partials/header', { title: 'Dashboard' }) %>
+
+<div class="d-flex">
+    <%- include('partials/sidebar') %>
+
+    <main class="flex-grow-1">
+        <%- include('partials/topbar') %>
+
+        <div class="container-fluid p-4">
+            <h2 class="mb-4">Dashboard</h2>
+
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <div class="card stat-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">Assets</h6>
+                            <h2><%= stats?.assets ?? 0 %></h2>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card stat-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">Lagerplads</h6>
+                            <h2><%= stats?.storage ?? '0 MB' %></h2>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="card stat-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">Brugere</h6>
+                            <h2><%= stats?.users ?? 1 %></h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
+
+<%- include('partials/footer') %>
