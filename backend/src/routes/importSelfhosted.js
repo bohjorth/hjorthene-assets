@@ -6,6 +6,8 @@ const db = require('../db');
 const config = require('../config');
 const { requireAuth, requireRole } = require('../middleware/roles');
 const { logEvent } = require('../utils/log');
+const { normalizeSvg } = require('../utils/svg');
+const { autoCropSvg } = require('../utils/svgCrop');
 const CATALOG = require('../data/selfhostedIcons');
 
 const router = express.Router();
@@ -53,7 +55,8 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
         try {
           const response = await fetch(`${CDN_BASE}/${ref}.svg`);
           if (response.ok) {
-            buffer = Buffer.from(await response.arrayBuffer());
+            buffer = normalizeSvg(Buffer.from(await response.arrayBuffer()));
+            buffer = await autoCropSvg(buffer);
             matchedRef = ref;
             break;
           }
@@ -113,16 +116,28 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
 
 // Søger i HELE selfh.st/icons-biblioteket (7000+) via Iconifys offentlige API,
 // som spejler samlingen under prefixet "selfhst". Kræver ingen API-nøgle.
-router.get('/search', requireAuth, async (req, res, next) => {
+router.get('/search', requireAuth, async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ icons: [] });
+
+  const url = `https://api.iconify.design/search?query=${encodeURIComponent(q)}&prefix=selfhst&limit=60`;
   try {
-    const q = (req.query.q || '').trim();
-    if (!q) return res.json({ icons: [] });
-
-    const url = `https://api.iconify.design/search?query=${encodeURIComponent(q)}&prefix=selfhst&limit=60`;
     const response = await fetch(url);
-    if (!response.ok) return res.json({ icons: [] });
+    const text = await response.text();
 
-    const data = await response.json();
+    if (!response.ok) {
+      console.error(`Iconify search fejlede (${response.status}):`, text.slice(0, 300));
+      return res.status(502).json({ error: `Iconify API svarede med status ${response.status}` });
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('Kunne ikke parse Iconify-svar som JSON:', text.slice(0, 300));
+      return res.status(502).json({ error: 'Uventet svar fra Iconify API (ikke gyldig JSON)' });
+    }
+
     const icons = (data.icons || []).map((full) => {
       const name = full.split(':')[1] || full;
       const label = name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
@@ -130,7 +145,8 @@ router.get('/search', requireAuth, async (req, res, next) => {
     });
     res.json({ icons });
   } catch (err) {
-    next(err);
+    console.error('Fejl ved kald til Iconify search API:', err.message);
+    res.status(502).json({ error: `Kunne ikke kontakte Iconify API: ${err.message}` });
   }
 });
 
@@ -165,7 +181,8 @@ router.post('/icons', requireAuth, requireRole('editor'), async (req, res, next)
         try {
           const response = await fetch(url);
           if (response.ok) {
-            buffer = Buffer.from(await response.arrayBuffer());
+            buffer = normalizeSvg(Buffer.from(await response.arrayBuffer()));
+            buffer = await autoCropSvg(buffer);
             break;
           }
         } catch (err) {

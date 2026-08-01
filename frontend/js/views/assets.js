@@ -426,7 +426,7 @@ function renderImportSearchTab() {
         });
       });
     } catch (e) {
-      results.innerHTML = `<div class="empty-state" style="padding:30px;">Søgningen fejlede.</div>`;
+      results.innerHTML = `<div class="empty-state" style="padding:30px;">Søgningen fejlede: ${escapeHtml(e.message || 'ukendt fejl')}</div>`;
     }
   }, 400));
 }

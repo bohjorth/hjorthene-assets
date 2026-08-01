@@ -14,6 +14,7 @@ module.exports = {
   baseUrl: req('BASE_URL', 'http://localhost:4000'),
   sessionSecret: req('SESSION_SECRET', 'dev-secret-change-me'),
   devNoAuth: req('DEV_NO_AUTH', 'false') === 'true',
+  chromiumPath: req('CHROMIUM_PATH', '/usr/bin/chromium'),
 
   uploadDir: path.resolve(req('UPLOAD_DIR', './uploads')),
   dataDir: path.resolve(req('DATA_DIR', './data')),
