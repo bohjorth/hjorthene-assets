@@ -356,15 +356,105 @@ async function handleUploadFiles(fileList) {
 }
 
 // ---------- Import fra selfhosted-katalog ----------
+const importState = { selected: new Map() }; // name -> label
+
 async function openImportSelfhostedModal() {
+  importState.selected.clear();
+
   openModal(`
-    <div class="modal-header"><h3>${icon('download')} Importér fra selfhosted</h3><button class="modal-close">${icon('close')}</button></div>
-    <div class="modal-body" id="import-modal-body">
-      <div class="empty-state">Indlæser katalog…</div>
+    <div class="modal-header"><h3>${icon('download')} Importér ikoner</h3><button class="modal-close">${icon('close')}</button></div>
+    <div class="import-tabs">
+      <button class="import-tab active" data-tab="search">Søg i hele biblioteket</button>
+      <button class="import-tab" data-tab="catalog">Kuraret pakke (75 stk.)</button>
     </div>
+    <div class="modal-body" id="import-modal-body"></div>
     <div class="modal-footer" id="import-modal-footer"></div>
   `, { wide: true });
 
+  document.querySelectorAll('.import-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.import-tab').forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      if (tab.dataset.tab === 'search') renderImportSearchTab();
+      else renderImportCatalogTab();
+    });
+  });
+
+  renderImportSearchTab();
+}
+
+function renderImportSearchTab() {
+  importState.selected.clear();
+  document.getElementById('import-modal-body').innerHTML = `
+    <p class="section-sub">
+      Søg blandt 7000+ officielle app-ikoner fra <a href="https://selfh.st/icons" target="_blank" rel="noopener">selfh.st/icons</a> (CC BY 4.0).
+      Vælg dem du vil have, og importér dem samlet ind i mappen <strong>App-ikoner</strong>.
+    </p>
+    <div class="field" style="margin-bottom:8px;">
+      <input type="text" id="icon-search-input" placeholder="Søg fx 'plex', 'kubernetes', 'wireguard'…" autofocus />
+    </div>
+    <div id="icon-search-results" class="icon-search-grid"></div>
+  `;
+  updateImportFooterForSearch();
+
+  const input = document.getElementById('icon-search-input');
+  input.addEventListener('input', debounce(async () => {
+    const q = input.value.trim();
+    const results = document.getElementById('icon-search-results');
+    if (!q) { results.innerHTML = ''; return; }
+    results.innerHTML = `<div class="empty-state" style="padding:30px;">Søger…</div>`;
+    try {
+      const { icons } = await api.importSelfhosted.search(q);
+      if (!icons.length) {
+        results.innerHTML = `<div class="empty-state" style="padding:30px;">Ingen ikoner matchede "${escapeHtml(q)}".</div>`;
+        return;
+      }
+      results.innerHTML = icons.map((i) => `
+        <button class="icon-pick ${importState.selected.has(i.name) ? 'selected' : ''}" data-name="${escapeHtml(i.name)}" data-label="${escapeHtml(i.label)}" title="${escapeHtml(i.label)}">
+          <img src="https://api.iconify.design/selfhst/${i.name}.svg" loading="lazy" alt="" />
+          <span>${escapeHtml(i.label)}</span>
+          <span class="icon-pick-check">${icon('check', 'icon icon-sm')}</span>
+        </button>
+      `).join('');
+      results.querySelectorAll('.icon-pick').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const { name, label } = btn.dataset;
+          if (importState.selected.has(name)) importState.selected.delete(name);
+          else importState.selected.set(name, label);
+          btn.classList.toggle('selected');
+          updateImportFooterForSearch();
+        });
+      });
+    } catch (e) {
+      results.innerHTML = `<div class="empty-state" style="padding:30px;">Søgningen fejlede.</div>`;
+    }
+  }, 400));
+}
+
+function updateImportFooterForSearch() {
+  const n = importState.selected.size;
+  document.getElementById('import-modal-footer').innerHTML = `
+    <button class="btn btn-ghost modal-close">Annuller</button>
+    <button class="btn btn-primary" id="run-search-import-btn" ${n ? '' : 'disabled'}>Importér valgte (${n})</button>
+  `;
+  document.getElementById('run-search-import-btn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const icons = Array.from(importState.selected.entries()).map(([name, label]) => ({ name, label }));
+    btn.disabled = true;
+    btn.textContent = 'Importerer…';
+    try {
+      const result = await api.importSelfhosted.importIcons(icons);
+      showImportResult(result);
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = `Importér valgte (${n})`;
+    }
+  });
+}
+
+async function renderImportCatalogTab() {
+  document.getElementById('import-modal-body').innerHTML = `<div class="empty-state">Indlæser katalog…</div>`;
   let data;
   try {
     data = await api.importSelfhosted.catalog();
@@ -384,9 +474,8 @@ async function openImportSelfhostedModal() {
 
   document.getElementById('import-modal-body').innerHTML = `
     <p class="section-sub">
-      Henter ${data.total} officielle app-ikoner fra <a href="https://selfh.st/icons" target="_blank" rel="noopener">selfh.st/icons</a>
-      (${data.license}) og opretter dem som assets i mappen <strong>App-ikoner</strong>, sorteret i undermapper pr. kategori og tagget "selfhosted".
-      Allerede importerede ikoner springes automatisk over.
+      Henter et fast, forhåndsvalgt udpluk af ${data.total} populære app-ikoner på én gang og opretter dem i
+      <strong>App-ikoner/&lt;kategori&gt;</strong>. Allerede importerede ikoner springes automatisk over.
     </p>
     <div style="max-height:340px; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
       ${categoryList}
@@ -403,30 +492,35 @@ async function openImportSelfhostedModal() {
     btn.textContent = 'Importerer… (kan tage et minuts tid)';
     try {
       const result = await api.importSelfhosted.run();
-      document.getElementById('import-modal-body').innerHTML = `
-        <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
-          <div class="stat-card stat-accent"><div class="stat-label">Importeret</div><div class="stat-value">${result.importedCount}</div></div>
-          <div class="stat-card"><div class="stat-label">Sprunget over</div><div class="stat-value">${result.skippedCount}</div></div>
-          <div class="stat-card"><div class="stat-label">Ikke fundet</div><div class="stat-value">${result.failedCount}</div></div>
-        </div>
-        ${result.failed.length ? `
-          <p class="section-sub"><strong>Ikke fundet i kataloget</strong> (kan evt. slås op manuelt på selfh.st/icons):</p>
-          <p class="section-sub">${result.failed.map(escapeHtml).join(', ')}</p>
-        ` : ''}
-      `;
-      document.getElementById('import-modal-footer').innerHTML = `<button class="btn btn-primary modal-close">Luk</button>`;
-      document.getElementById('import-modal-footer').querySelector('.modal-close').addEventListener('click', closeModal);
-      toast(`${result.importedCount} ikoner importeret`, 'success');
-      loadAssetResults();
-      loadFolderTree();
-      loadCategoryFilters();
-      loadTagFilters();
+      showImportResult(result);
     } catch (err) {
       toast(err.message, 'error');
       btn.disabled = false;
       btn.textContent = `Start import (${data.total} ikoner)`;
     }
   });
+}
+
+function showImportResult(result) {
+  document.getElementById('import-modal-body').innerHTML = `
+    <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
+      <div class="stat-card stat-accent"><div class="stat-label">Importeret</div><div class="stat-value">${result.importedCount}</div></div>
+      <div class="stat-card"><div class="stat-label">Sprunget over</div><div class="stat-value">${result.skippedCount}</div></div>
+      <div class="stat-card"><div class="stat-label">Ikke fundet</div><div class="stat-value">${result.failedCount}</div></div>
+    </div>
+    ${result.failed.length ? `
+      <p class="section-sub"><strong>Ikke fundet</strong> (prøv evt. et andet søgeord på selfh.st/icons):</p>
+      <p class="section-sub">${result.failed.map(escapeHtml).join(', ')}</p>
+    ` : ''}
+  `;
+  document.getElementById('import-modal-footer').innerHTML = `<button class="btn btn-primary modal-close">Luk</button>`;
+  document.getElementById('import-modal-footer').querySelector('.modal-close').addEventListener('click', closeModal);
+  document.querySelector('.import-tabs')?.remove();
+  toast(`${result.importedCount} ikoner importeret`, 'success');
+  loadAssetResults();
+  loadFolderTree();
+  loadCategoryFilters();
+  loadTagFilters();
 }
 
 // ---------- Asset detail modal ----------

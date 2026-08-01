@@ -111,4 +111,111 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
   }
 });
 
+// Søger i HELE selfh.st/icons-biblioteket (7000+) via Iconifys offentlige API,
+// som spejler samlingen under prefixet "selfhst". Kræver ingen API-nøgle.
+router.get('/search', requireAuth, async (req, res, next) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json({ icons: [] });
+
+    const url = `https://api.iconify.design/search?query=${encodeURIComponent(q)}&prefix=selfhst&limit=60`;
+    const response = await fetch(url);
+    if (!response.ok) return res.json({ icons: [] });
+
+    const data = await response.json();
+    const icons = (data.icons || []).map((full) => {
+      const name = full.split(':')[1] || full;
+      const label = name.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      return { name, label };
+    });
+    res.json({ icons });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Importerer specifikt udvalgte ikoner (fra søgeresultatet). Lægges direkte i
+// "App-ikoner" uden kategori-undermapper, da frit-søgte ikoner ikke matcher
+// vores faste kategoriseringstaksonomi.
+router.post('/icons', requireAuth, requireRole('editor'), async (req, res, next) => {
+  try {
+    const { icons } = req.body;
+    if (!Array.isArray(icons) || !icons.length) {
+      return res.status(400).json({ error: 'Ingen ikoner valgt' });
+    }
+
+    const rootFolder = findOrCreateFolder('App-ikoner', null);
+    const selfhostedTag = getOrCreateTag('selfhosted');
+
+    const imported = [];
+    const skipped = [];
+    const failed = [];
+
+    for (const item of icons) {
+      const name = String(item.name || '').trim();
+      const label = item.label || name;
+      if (!name) continue;
+
+      let buffer = null;
+      const urls = [
+        `https://api.iconify.design/selfhst/${name}.svg`,
+        `${CDN_BASE}/${name}.svg`,
+      ];
+      for (const url of urls) {
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            buffer = Buffer.from(await response.arrayBuffer());
+            break;
+          }
+        } catch (err) {
+          // prøv næste kilde
+        }
+      }
+
+      if (!buffer) {
+        failed.push(label);
+        continue;
+      }
+
+      const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+      const alreadyExists = db.prepare('SELECT id FROM assets WHERE sha256 = ?').get(sha256);
+      if (alreadyExists) {
+        skipped.push(label);
+        continue;
+      }
+
+      const filename = `${crypto.randomBytes(8).toString('hex')}.svg`;
+      fs.writeFileSync(path.join(config.uploadDir, filename), buffer);
+
+      const info = db
+        .prepare(
+          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id)
+           VALUES (?, ?, ?, 'image/svg+xml', 'Billeder', ?, ?, ?)`
+        )
+        .run(filename, `${name}.svg`, buffer.length, sha256, rootFolder.id, req.session.user.id);
+
+      db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(info.lastInsertRowid, selfhostedTag.id);
+      imported.push(label);
+    }
+
+    logEvent(
+      'import',
+      `${req.session.user.name} importerede ${imported.length} ikoner via søgning (${skipped.length} sprunget over, ${failed.length} fejlede)`,
+      req.session.user.id
+    );
+
+    res.json({
+      importedCount: imported.length,
+      skippedCount: skipped.length,
+      failedCount: failed.length,
+      imported,
+      skipped,
+      failed,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

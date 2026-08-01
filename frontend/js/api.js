@@ -75,6 +75,8 @@ const api = {
   importSelfhosted: {
     catalog: () => apiFetch('/api/import/selfhosted/catalog'),
     run: () => apiFetch('/api/import/selfhosted', { method: 'POST' }),
+    search: (q) => apiFetch('/api/import/selfhosted/search?q=' + encodeURIComponent(q)),
+    importIcons: (icons) => apiFetch('/api/import/selfhosted/icons', { method: 'POST', body: JSON.stringify({ icons }) }),
   },
 };
 
