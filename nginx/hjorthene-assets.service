@@ -7,12 +7,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=/var/www/hjorthene-assets/backend
+User=assets
+WorkingDirectory=/opt/hjorthene-assets/backend
 ExecStart=/usr/bin/node src/server.js
 Restart=on-failure
 RestartSec=5
-EnvironmentFile=/var/www/hjorthene-assets/backend/.env
+EnvironmentFile=/opt/hjorthene-assets/backend/.env
 
 [Install]
 WantedBy=multi-user.target
