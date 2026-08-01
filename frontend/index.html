@@ -21,10 +21,12 @@
 </div>
 
 <div id="app" class="app hidden">
-  <aside class="sidebar">
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+  <aside class="sidebar" id="sidebar">
     <div class="brand">
       <img src="img/logo-icon.png" alt="" class="brand-mark" />
       <span class="brand-name">Hjorthene<br><span class="brand-sub">Assets</span></span>
+      <button id="sidebar-close-btn" class="sidebar-close-btn" aria-label="Luk menu"><svg class="icon"><use href="img/icons.svg#close"></use></svg></button>
     </div>
 
     <nav class="nav">
@@ -49,10 +51,13 @@
 
   <main class="main">
     <header class="topbar">
+      <button id="menu-toggle-btn" class="menu-toggle-btn" aria-label="Åbn menu">
+        <svg class="icon icon-lg"><use href="img/icons.svg#menu"></use></svg>
+      </button>
       <div id="breadcrumb" class="breadcrumb"></div>
       <div class="topbar-search">
         <svg class="icon search-icon"><use href="img/icons.svg#search"></use></svg>
-        <input id="global-search" type="text" placeholder="Søg på navn, tags, mappe, kategori, filtype…" />
+        <input id="global-search" type="text" placeholder="Søg…" />
       </div>
     </header>
 

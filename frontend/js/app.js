@@ -42,8 +42,15 @@ function showApp() {
   }
 
   document.querySelectorAll('.nav-item').forEach((btn) => {
-    btn.addEventListener('click', () => navigateTo(btn.dataset.view));
+    btn.addEventListener('click', () => {
+      navigateTo(btn.dataset.view);
+      closeMobileMenu();
+    });
   });
+
+  document.getElementById('menu-toggle-btn').addEventListener('click', openMobileMenu);
+  document.getElementById('sidebar-close-btn').addEventListener('click', closeMobileMenu);
+  document.getElementById('sidebar-backdrop').addEventListener('click', closeMobileMenu);
 
   document.getElementById('logout-btn').addEventListener('click', async () => {
     const { logoutUrl } = await api.logout();
@@ -55,6 +62,16 @@ function showApp() {
   }, 350));
 
   navigateTo('dashboard');
+}
+
+function openMobileMenu() {
+  document.getElementById('sidebar').classList.add('open');
+  document.getElementById('sidebar-backdrop').classList.add('visible');
+}
+
+function closeMobileMenu() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-backdrop').classList.remove('visible');
 }
 
 function navigateTo(view, searchQuery) {

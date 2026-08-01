@@ -13,7 +13,7 @@ async function renderAssets(root, presetQuery = '') {
   assetsState.q = presetQuery;
   root.innerHTML = `
     <div class="assets-layout">
-      <div class="assets-sidebar">
+      <div class="assets-sidebar" id="assets-filters">
         <div>
           <div class="row-between" style="margin-bottom:8px;">
             <p class="filter-group-title" style="margin:0;">Mapper</p>
@@ -47,6 +47,7 @@ async function renderAssets(root, presetQuery = '') {
             <button data-view="grid" class="active">${icon('view-grid')} Grid</button>
             <button data-view="list">${icon('view-list')} Liste</button>
           </div>
+          <button class="btn btn-ghost mobile-filter-toggle" id="mobile-filter-toggle">${icon('filter')} Filtre</button>
         </div>
         <div id="asset-results"></div>
       </div>
@@ -55,6 +56,9 @@ async function renderAssets(root, presetQuery = '') {
 
   document.getElementById('open-upload-btn').addEventListener('click', openUploadModal);
   document.getElementById('import-selfhosted-btn')?.addEventListener('click', openImportSelfhostedModal);
+  document.getElementById('mobile-filter-toggle')?.addEventListener('click', () => {
+    document.getElementById('assets-filters').classList.toggle('mobile-open');
+  });
   document.getElementById('new-folder-btn').addEventListener('click', () => openFolderModal());
   document.getElementById('sort-select').addEventListener('change', (e) => {
     assetsState.sort = e.target.value;
@@ -197,6 +201,7 @@ async function loadAssetResults() {
     container.innerHTML = `<div class="asset-grid">${assets.map(assetCardHtml).join('')}</div>`;
   } else {
     container.innerHTML = `
+      <div class="table-scroll">
       <table class="asset-table">
         <thead><tr>
           <th>Navn</th><th>Type</th><th>Størrelse</th><th>Kategori</th><th>Tags</th><th>Upload dato</th><th></th>
@@ -215,6 +220,7 @@ async function loadAssetResults() {
           `).join('')}
         </tbody>
       </table>
+      </div>
     `;
   }
 
@@ -409,6 +415,7 @@ async function openImportSelfhostedModal() {
         ` : ''}
       `;
       document.getElementById('import-modal-footer').innerHTML = `<button class="btn btn-primary modal-close">Luk</button>`;
+      document.getElementById('import-modal-footer').querySelector('.modal-close').addEventListener('click', closeModal);
       toast(`${result.importedCount} ikoner importeret`, 'success');
       loadAssetResults();
       loadFolderTree();
