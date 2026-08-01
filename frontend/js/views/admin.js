@@ -19,7 +19,7 @@ async function renderAdmin(root) {
     <div class="panel">
       <div class="row-between">
         <h3 class="section-title" style="font-size:13px;margin:0;">Backup</h3>
-        <button class="btn btn-ghost btn-sm" id="backup-btn">Tag database-backup</button>
+        <button class="btn btn-ghost btn-sm" id="backup-btn">${icon('download')} Tag database-backup</button>
       </div>
       <p class="section-sub" style="margin:8px 0 0;">Kopierer SQLite-databasen til data/backups/ på serveren.</p>
     </div>

@@ -17,7 +17,7 @@ async function renderAssets(root, presetQuery = '') {
         <div>
           <div class="row-between" style="margin-bottom:8px;">
             <p class="filter-group-title" style="margin:0;">Mapper</p>
-            <button class="btn btn-ghost btn-sm" id="new-folder-btn" title="Ny mappe">+</button>
+            <button class="btn btn-ghost btn-sm" id="new-folder-btn" title="Ny mappe">${icon('plus')}</button>
           </div>
           <div class="folder-tree" id="folder-tree"></div>
         </div>
@@ -34,7 +34,8 @@ async function renderAssets(root, presetQuery = '') {
       <div class="assets-main">
         <div class="assets-toolbar">
           <div class="assets-toolbar-left">
-            <button class="btn btn-primary" id="open-upload-btn">+ Upload</button>
+            <button class="btn btn-primary" id="open-upload-btn">${icon('upload')} Upload</button>
+            ${['editor', 'admin'].includes(currentUser.role) ? `<button class="btn btn-ghost" id="import-selfhosted-btn">${icon('download')} Importér fra selfhosted</button>` : ''}
             <select class="select-inline" id="sort-select">
               <option value="created_at">Nyeste først</option>
               <option value="name">Navn (A-Å)</option>
@@ -43,8 +44,8 @@ async function renderAssets(root, presetQuery = '') {
             </select>
           </div>
           <div class="view-toggle">
-            <button data-view="grid" class="active">▦ Grid</button>
-            <button data-view="list">☰ Liste</button>
+            <button data-view="grid" class="active">${icon('view-grid')} Grid</button>
+            <button data-view="list">${icon('view-list')} Liste</button>
           </div>
         </div>
         <div id="asset-results"></div>
@@ -53,6 +54,7 @@ async function renderAssets(root, presetQuery = '') {
   `;
 
   document.getElementById('open-upload-btn').addEventListener('click', openUploadModal);
+  document.getElementById('import-selfhosted-btn')?.addEventListener('click', openImportSelfhostedModal);
   document.getElementById('new-folder-btn').addEventListener('click', () => openFolderModal());
   document.getElementById('sort-select').addEventListener('change', (e) => {
     assetsState.sort = e.target.value;
@@ -81,10 +83,10 @@ async function loadFolderTree() {
   function renderLevel(parentId, depth) {
     return (byParent[parentId] || []).map((f) => `
       <div class="folder-tree-item ${assetsState.folderId === f.id ? 'active' : ''}" data-folder-id="${f.id}" style="padding-left:${8 + depth * 14}px">
-        <span class="fname">📁 ${escapeHtml(f.name)}</span>
+        <span class="fname">${icon('folder')} ${escapeHtml(f.name)}</span>
         <div class="folder-actions">
-          <button data-action="rename" data-id="${f.id}" title="Omdøb">✎</button>
-          <button data-action="delete" data-id="${f.id}" title="Slet">✕</button>
+          <button data-action="rename" data-id="${f.id}" title="Omdøb">${icon('edit', 'icon icon-sm')}</button>
+          <button data-action="delete" data-id="${f.id}" title="Slet">${icon('trash', 'icon icon-sm')}</button>
         </div>
       </div>
       ${renderLevel(f.id, depth + 1)}
@@ -94,7 +96,7 @@ async function loadFolderTree() {
   const tree = document.getElementById('folder-tree');
   tree.innerHTML = `
     <div class="folder-tree-item ${assetsState.folderId === null ? 'active' : ''}" data-folder-id="">
-      <span class="fname">🗂 Alle assets</span>
+      <span class="fname">${icon('assets')} Alle assets</span>
     </div>
     ${renderLevel(null, 0)}
   `;
@@ -186,7 +188,7 @@ async function loadAssetResults() {
   }
 
   if (!assets.length) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🗂</div>Ingen assets fundet. Prøv et andet filter, eller <a href="#" id="empty-upload-link">upload en fil</a>.</div>`;
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">${icon('assets', 'icon-xl')}</div>Ingen assets fundet. Prøv et andet filter, eller <a href="#" id="empty-upload-link">upload en fil</a>.</div>`;
     document.getElementById('empty-upload-link')?.addEventListener('click', (e) => { e.preventDefault(); openUploadModal(); });
     return;
   }
@@ -197,7 +199,7 @@ async function loadAssetResults() {
     container.innerHTML = `
       <table class="asset-table">
         <thead><tr>
-          <th>Navn</th><th>Type</th><th>Størrelse</th><th>Kategori</th><th>Tags</th><th>Upload dato</th>
+          <th>Navn</th><th>Type</th><th>Størrelse</th><th>Kategori</th><th>Tags</th><th>Upload dato</th><th></th>
         </tr></thead>
         <tbody>
           ${assets.map((a) => `
@@ -208,6 +210,7 @@ async function loadAssetResults() {
               <td>${a.category}</td>
               <td><div class="tag-list-inline">${a.tags.map((t) => `<span class="tag-chip-mini">${escapeHtml(t.name)}</span>`).join('')}</div></td>
               <td class="mono">${formatDate(a.created_at)}</td>
+              <td><button class="icon-btn-copy" data-copy-id="${a.id}" title="Kopiér URL">${icon('copy', 'icon icon-sm')}</button></td>
             </tr>
           `).join('')}
         </tbody>
@@ -217,6 +220,15 @@ async function loadAssetResults() {
 
   container.querySelectorAll('[data-id]').forEach((el) => {
     el.addEventListener('click', () => openAssetDetail(parseInt(el.dataset.id, 10)));
+  });
+
+  container.querySelectorAll('[data-copy-id]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = `${window.location.origin}/api/assets/${btn.dataset.copyId}/preview`;
+      const success = await copyToClipboard(url);
+      toast(success ? 'URL kopieret' : 'Kunne ikke kopiere URL', success ? 'success' : 'error');
+    });
   });
 }
 
@@ -230,6 +242,7 @@ function assetCardHtml(a) {
         <div class="asset-card-meta">
           <span class="filetype-chip cat-${a.category}">${extOf(a.original_name)}</span>
           <span class="asset-size">${formatBytes(a.size)}</span>
+          <button class="icon-btn-copy" data-copy-id="${a.id}" title="Kopiér URL">${icon('copy', 'icon icon-sm')}</button>
         </div>
       </div>
     </div>
@@ -258,7 +271,7 @@ function updateBreadcrumb() {
 // ---------- Folder create/rename modal ----------
 function openFolderModal(folder = null) {
   const overlay = openModal(`
-    <div class="modal-header"><h3>${folder ? 'Omdøb mappe' : 'Ny mappe'}</h3><button class="modal-close">✕</button></div>
+    <div class="modal-header"><h3>${folder ? 'Omdøb mappe' : 'Ny mappe'}</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
       <div class="field"><label>Navn</label><input type="text" id="folder-name-input" value="${folder ? escapeHtml(folder.name) : ''}" placeholder="fx Marketing" /></div>
     </div>
@@ -284,7 +297,7 @@ function openFolderModal(folder = null) {
 // ---------- Upload modal ----------
 function openUploadModal() {
   openModal(`
-    <div class="modal-header"><h3>Upload filer</h3><button class="modal-close">✕</button></div>
+    <div class="modal-header"><h3>Upload filer</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
       <div class="dropzone" id="dropzone">
         <strong>Slip filer her</strong> eller klik for at vælge<br />
@@ -336,6 +349,79 @@ async function handleUploadFiles(fileList) {
   }
 }
 
+// ---------- Import fra selfhosted-katalog ----------
+async function openImportSelfhostedModal() {
+  openModal(`
+    <div class="modal-header"><h3>${icon('download')} Importér fra selfhosted</h3><button class="modal-close">${icon('close')}</button></div>
+    <div class="modal-body" id="import-modal-body">
+      <div class="empty-state">Indlæser katalog…</div>
+    </div>
+    <div class="modal-footer" id="import-modal-footer"></div>
+  `, { wide: true });
+
+  let data;
+  try {
+    data = await api.importSelfhosted.catalog();
+  } catch (e) {
+    document.getElementById('import-modal-body').innerHTML = `<div class="empty-state">Kunne ikke hente kataloget.</div>`;
+    return;
+  }
+
+  const categoryList = Object.entries(data.categories)
+    .map(([cat, apps]) => `
+      <div class="field">
+        <label>${escapeHtml(cat)} <span class="mono" style="font-weight:400;">(${apps.length})</span></label>
+        <div class="section-sub" style="margin:0;">${apps.map(escapeHtml).join(', ')}</div>
+      </div>
+    `)
+    .join('');
+
+  document.getElementById('import-modal-body').innerHTML = `
+    <p class="section-sub">
+      Henter ${data.total} officielle app-ikoner fra <a href="https://selfh.st/icons" target="_blank" rel="noopener">selfh.st/icons</a>
+      (${data.license}) og opretter dem som assets i mappen <strong>App-ikoner</strong>, sorteret i undermapper pr. kategori og tagget "selfhosted".
+      Allerede importerede ikoner springes automatisk over.
+    </p>
+    <div style="max-height:340px; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
+      ${categoryList}
+    </div>
+  `;
+  document.getElementById('import-modal-footer').innerHTML = `
+    <button class="btn btn-ghost modal-close">Annuller</button>
+    <button class="btn btn-primary" id="run-import-btn">Start import (${data.total} ikoner)</button>
+  `;
+
+  document.getElementById('run-import-btn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Importerer… (kan tage et minuts tid)';
+    try {
+      const result = await api.importSelfhosted.run();
+      document.getElementById('import-modal-body').innerHTML = `
+        <div class="stat-grid" style="grid-template-columns:repeat(3,1fr);">
+          <div class="stat-card stat-accent"><div class="stat-label">Importeret</div><div class="stat-value">${result.importedCount}</div></div>
+          <div class="stat-card"><div class="stat-label">Sprunget over</div><div class="stat-value">${result.skippedCount}</div></div>
+          <div class="stat-card"><div class="stat-label">Ikke fundet</div><div class="stat-value">${result.failedCount}</div></div>
+        </div>
+        ${result.failed.length ? `
+          <p class="section-sub"><strong>Ikke fundet i kataloget</strong> (kan evt. slås op manuelt på selfh.st/icons):</p>
+          <p class="section-sub">${result.failed.map(escapeHtml).join(', ')}</p>
+        ` : ''}
+      `;
+      document.getElementById('import-modal-footer').innerHTML = `<button class="btn btn-primary modal-close">Luk</button>`;
+      toast(`${result.importedCount} ikoner importeret`, 'success');
+      loadAssetResults();
+      loadFolderTree();
+      loadCategoryFilters();
+      loadTagFilters();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = `Start import (${data.total} ikoner)`;
+    }
+  });
+}
+
 // ---------- Asset detail modal ----------
 async function openAssetDetail(id) {
   const { asset } = await api.assets.get(id);
@@ -352,7 +438,7 @@ async function openAssetDetail(id) {
   else if (isPdf) previewHtml = `<iframe src="/api/assets/${asset.id}/preview" style="width:100%;height:100%;border:none;"></iframe>`;
 
   openModal(`
-    <div class="modal-header"><h3>${escapeHtml(asset.original_name)}</h3><button class="modal-close">✕</button></div>
+    <div class="modal-header"><h3>${escapeHtml(asset.original_name)}</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
       <div class="detail-grid">
         <div class="detail-preview">${previewHtml}</div>
@@ -378,11 +464,18 @@ async function openAssetDetail(id) {
       </div>
     </div>
     <div class="modal-footer">
-      <a class="btn btn-ghost" href="/api/assets/${asset.id}/download">⬇ Download</a>
-      ${canEdit ? `<button class="btn btn-primary" id="save-meta-btn">Gem ændringer</button>` : ''}
-      ${canEdit ? `<button class="btn btn-danger" id="delete-asset-btn">Slet</button>` : ''}
+      <button class="btn btn-ghost" id="copy-url-btn">${icon('copy')} Kopiér URL</button>
+      <a class="btn btn-ghost" href="/api/assets/${asset.id}/download">${icon('download')} Download</a>
+      ${canEdit ? `<button class="btn btn-primary" id="save-meta-btn">${icon('check')} Gem ændringer</button>` : ''}
+      ${canEdit ? `<button class="btn btn-danger" id="delete-asset-btn">${icon('trash')} Slet</button>` : ''}
     </div>
   `, { wide: true });
+
+  document.getElementById('copy-url-btn').addEventListener('click', async () => {
+    const url = `${window.location.origin}/api/assets/${asset.id}/preview`;
+    const success = await copyToClipboard(url);
+    toast(success ? 'URL kopieret' : 'Kunne ikke kopiere URL', success ? 'success' : 'error');
+  });
 
   document.getElementById('save-meta-btn')?.addEventListener('click', async () => {
     const original_name = document.getElementById('edit-name').value.trim();

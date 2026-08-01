@@ -45,12 +45,39 @@ function closeModal() {
   document.getElementById('modal-root').innerHTML = '';
 }
 
-function fileIcon(category) {
+function icon(name, cls = 'icon') {
+  return `<svg class="${cls}"><use href="img/icons.svg#${name}"></use></svg>`;
+}
+
+function fileIcon(category, cls = 'icon') {
   const icons = {
-    Billeder: '🖼', Video: '🎬', Audio: '🎵', PDF: '📕',
-    Office: '📄', ZIP: '🗜', CAD: '📐', '3D': '⬡', Dokumenter: '📃', Andet: '📦',
+    Billeder: 'file-image', Video: 'file-video', Audio: 'file-audio', PDF: 'file-pdf',
+    Office: 'file-doc', ZIP: 'file-zip', CAD: 'file-cad', '3D': 'file-3d',
+    Dokumenter: 'file-doc', Andet: 'file-generic',
   };
-  return icons[category] || '📦';
+  return icon(icons[category] || 'file-generic', cls);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    // Fallback for browsere/kontekster uden Clipboard API-adgang
+    try {
+      const el = document.createElement('textarea');
+      el.value = text;
+      el.style.position = 'fixed';
+      el.style.opacity = '0';
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      document.body.removeChild(el);
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  }
 }
 
 function debounce(fn, wait = 300) {

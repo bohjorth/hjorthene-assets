@@ -28,7 +28,7 @@ async function renderDashboard(root) {
         <div class="stat-value">${data.assets_by_category.length}</div>
       </div>
       <div class="stat-card">
-        <button class="btn btn-primary btn-block" id="dash-upload-btn">+ Upload filer</button>
+        <button class="btn btn-primary btn-block" id="dash-upload-btn">${icon('upload')} Upload filer</button>
       </div>
     </div>
 

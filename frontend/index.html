@@ -28,11 +28,11 @@
     </div>
 
     <nav class="nav">
-      <button class="nav-item" data-view="dashboard"><span class="nav-icon">◆</span>Dashboard</button>
-      <button class="nav-item" data-view="assets"><span class="nav-icon">▤</span>Assets</button>
-      <button class="nav-item" data-view="collections"><span class="nav-icon">✦</span>Collections</button>
-      <button class="nav-item admin-only" data-view="settings"><span class="nav-icon">⚙</span>Indstillinger</button>
-      <button class="nav-item admin-only" data-view="admin"><span class="nav-icon">▣</span>Administration</button>
+      <button class="nav-item" data-view="dashboard"><span class="nav-icon"><svg class="icon"><use href="img/icons.svg#dashboard"></use></svg></span>Dashboard</button>
+      <button class="nav-item" data-view="assets"><span class="nav-icon"><svg class="icon"><use href="img/icons.svg#assets"></use></svg></span>Assets</button>
+      <button class="nav-item" data-view="collections"><span class="nav-icon"><svg class="icon"><use href="img/icons.svg#collections"></use></svg></span>Collections</button>
+      <button class="nav-item admin-only" data-view="settings"><span class="nav-icon"><svg class="icon"><use href="img/icons.svg#settings"></use></svg></span>Indstillinger</button>
+      <button class="nav-item admin-only" data-view="admin"><span class="nav-icon"><svg class="icon"><use href="img/icons.svg#admin"></use></svg></span>Administration</button>
     </nav>
 
     <div class="sidebar-footer">
@@ -43,7 +43,7 @@
           <div class="user-role" id="user-role">—</div>
         </div>
       </div>
-      <button id="logout-btn" class="btn btn-ghost btn-sm btn-block">Log ud</button>
+      <button id="logout-btn" class="btn btn-ghost btn-sm btn-block"><svg class="icon"><use href="img/icons.svg#logout"></use></svg> Log ud</button>
     </div>
   </aside>
 
@@ -51,6 +51,7 @@
     <header class="topbar">
       <div id="breadcrumb" class="breadcrumb"></div>
       <div class="topbar-search">
+        <svg class="icon search-icon"><use href="img/icons.svg#search"></use></svg>
         <input id="global-search" type="text" placeholder="Søg på navn, tags, mappe, kategori, filtype…" />
       </div>
     </header>

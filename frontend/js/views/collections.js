@@ -9,23 +9,23 @@ async function renderCollections(root) {
         <h2 class="section-title">Collections</h2>
         <p class="section-sub">Virtuelle samlinger — filer ligger kun ét sted, men kan indgå i flere collections</p>
       </div>
-      ${canEdit ? `<button class="btn btn-primary" id="new-collection-btn">+ Ny collection</button>` : ''}
+      ${canEdit ? `<button class="btn btn-primary" id="new-collection-btn">${icon('plus')} Ny collection</button>` : ''}
     </div>
     ${collections.length ? `
       <div class="collection-grid">
         ${collections.map((c) => `
           <div class="collection-card" data-id="${c.id}">
-            <h4>✦ ${escapeHtml(c.name)}</h4>
+            <h4>${icon('collections')} ${escapeHtml(c.name)}</h4>
             <p>${c.asset_count} asset(s)${c.description ? ' · ' + escapeHtml(c.description) : ''}</p>
           </div>
         `).join('')}
       </div>
-    ` : `<div class="empty-state"><div class="empty-state-icon">✦</div>Ingen collections endnu.</div>`}
+    ` : `<div class="empty-state"><div class="empty-state-icon">${icon('collections', 'icon-xl')}</div>Ingen collections endnu.</div>`}
   `;
 
   document.getElementById('new-collection-btn')?.addEventListener('click', () => {
     openModal(`
-      <div class="modal-header"><h3>Ny collection</h3><button class="modal-close">✕</button></div>
+      <div class="modal-header"><h3>Ny collection</h3><button class="modal-close">${icon('close')}</button></div>
       <div class="modal-body">
         <div class="field"><label>Navn</label><input type="text" id="coll-name" placeholder="fx Kampagne 2027" /></div>
         <div class="field"><label>Beskrivelse (valgfri)</label><textarea id="coll-desc" rows="3"></textarea></div>
@@ -58,7 +58,7 @@ async function openCollectionDetail(id) {
   const canEdit = ['editor', 'admin'].includes(currentUser.role);
 
   openModal(`
-    <div class="modal-header"><h3>✦ ${escapeHtml(collection.name)}</h3><button class="modal-close">✕</button></div>
+    <div class="modal-header"><h3>${icon('collections')} ${escapeHtml(collection.name)}</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
       ${collection.description ? `<p class="section-sub">${escapeHtml(collection.description)}</p>` : ''}
       ${collection.assets.length ? `
@@ -69,7 +69,7 @@ async function openCollectionDetail(id) {
               <div class="asset-card-name">${escapeHtml(a.original_name)}</div>
               <div class="asset-card-meta">
                 <span class="filetype-chip cat-${a.category}">${extOf(a.original_name)}</span>
-                ${canEdit ? `<button class="btn btn-ghost btn-sm" data-remove="${a.id}">Fjern</button>` : ''}
+                ${canEdit ? `<button class="btn btn-ghost btn-sm" data-remove="${a.id}">${icon('close', 'icon icon-sm')}</button>` : ''}
               </div>
             </div>
           </div>
@@ -77,7 +77,7 @@ async function openCollectionDetail(id) {
       ` : `<div class="empty-state">Ingen assets i denne collection endnu.</div>`}
     </div>
     <div class="modal-footer">
-      ${canEdit ? `<button class="btn btn-danger" id="delete-coll-btn">Slet collection</button>` : ''}
+      ${canEdit ? `<button class="btn btn-danger" id="delete-coll-btn">${icon('trash')} Slet collection</button>` : ''}
     </div>
   `, { wide: true });
 

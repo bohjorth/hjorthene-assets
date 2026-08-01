@@ -71,6 +71,11 @@ const api = {
   logs: {
     list: (params = {}) => apiFetch('/api/logs?' + new URLSearchParams(params)),
   },
+
+  importSelfhosted: {
+    catalog: () => apiFetch('/api/import/selfhosted/catalog'),
+    run: () => apiFetch('/api/import/selfhosted', { method: 'POST' }),
+  },
 };
 
 function uploadWithProgress(path, formData, onProgress) {

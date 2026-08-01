@@ -83,6 +83,21 @@ sudo ln -s /etc/nginx/sites-available/assets.hjorthene.dk.conf /etc/nginx/sites-
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## Import af app-ikoner fra selfhosted-katalog
+
+Under **Assets** findes knappen **"Importér fra selfhosted"** (Editor+), som henter
+~75 officielle app-logoer (Proxmox, Docker, Grafana, Authentik, m.fl.) direkte fra
+[selfh.st/icons](https://selfh.st/icons) (CC BY 4.0) og opretter dem som assets i
+mappen `App-ikoner/<kategori>`, tagget `selfhosted`. Kataloget udvides ved at
+redigere `backend/src/data/selfhostedIcons.js`.
+
+Da import-endpointet kalder ud til internettet fra backend-serveren, kræver det at
+serveren har udgående netværksadgang til `cdn.jsdelivr.net`.
+
+Et alternativt CLI-script (`scripts/get-app-icons.sh`) findes også, hvis du hellere
+vil hente ikonerne som rå filer uden om appen (fx til et andet dashboard).
+Husk attribution ved brug: *"App icons courtesy of selfh.st/icons"*.
+
 ## Roller
 
 | Rolle | Rettigheder |
