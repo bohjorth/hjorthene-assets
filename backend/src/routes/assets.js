@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const mime = require('mime-types');
+const archiver = require('archiver');
 const db = require('../db');
 const config = require('../config');
 const upload = require('../middleware/upload');
@@ -231,6 +232,105 @@ router.get('/', requireAuth, (req, res) => {
   const rows = db.prepare(sql).all(...params);
   const withTags = rows.map((a) => assetWithTags(a.id));
   res.json({ assets: withTags });
+});
+
+// --- ZIP-download af flere assets ---
+// Placeret FØR /:id-ruterne, ellers ville "zip" blive fortolket som et :id.
+router.get('/zip', requireAuth, (req, res) => {
+  const ids = String(req.query.ids || '')
+    .split(',')
+    .map((s) => parseInt(s, 10))
+    .filter((n) => !Number.isNaN(n));
+  if (!ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const assets = db.prepare(`SELECT * FROM assets WHERE id IN (${placeholders})`).all(...ids);
+  if (!assets.length) return res.status(404).json({ error: 'Ingen assets fundet' });
+
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="hjorthene-assets-${Date.now()}.zip"`);
+
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.on('error', (err) => {
+    console.error('ZIP-fejl:', err.message);
+    if (!res.headersSent) res.status(500).end();
+  });
+  archive.pipe(res);
+
+  const usedNames = new Set();
+  for (const asset of assets) {
+    const filePath = path.join(config.uploadDir, asset.filename);
+    if (!fs.existsSync(filePath)) continue;
+
+    // Undgå navnekollisioner inde i selve ZIP-filen (fx to filer der hedder "logo.png")
+    let name = asset.original_name;
+    let counter = 1;
+    while (usedNames.has(name)) {
+      const ext = path.extname(asset.original_name);
+      const base = path.basename(asset.original_name, ext);
+      name = `${base} (${counter})${ext}`;
+      counter++;
+    }
+    usedNames.add(name);
+    archive.file(filePath, { name });
+  }
+
+  archive.finalize();
+  logEvent('download', `${req.session.user.name} downloadede ${assets.length} assets som ZIP`, req.session.user.id);
+});
+
+// --- Bulk: flyt flere assets til en mappe (Editor+) ---
+router.post('/bulk/move', requireAuth, requireRole('editor'), (req, res) => {
+  const { ids, folder_id } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
+
+  const move = db.prepare('UPDATE assets SET folder_id = ? WHERE id = ?');
+  const tx = db.transaction((assetIds) => {
+    for (const id of assetIds) move.run(folder_id || null, id);
+  });
+  tx(ids);
+
+  logEvent('bulk_move', `${req.session.user.name} flyttede ${ids.length} assets`, req.session.user.id);
+  res.json({ success: true, count: ids.length });
+});
+
+// --- Bulk: tilføj tag(s) til flere assets (Editor+) ---
+router.post('/bulk/tag', requireAuth, requireRole('editor'), (req, res) => {
+  const { ids, tags } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
+  if (!Array.isArray(tags) || !tags.length) return res.status(400).json({ error: 'Ingen tags angivet' });
+
+  const link = db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)');
+  const tx = db.transaction((assetIds, tagNames) => {
+    const tagRows = tagNames.map((name) => getOrCreateTagRow(String(name).trim())).filter(Boolean);
+    for (const assetId of assetIds) {
+      for (const tagRow of tagRows) link.run(assetId, tagRow.id);
+    }
+  });
+  tx(ids, tags);
+
+  logEvent('bulk_tag', `${req.session.user.name} tilføjede tags (${tags.join(', ')}) til ${ids.length} assets`, req.session.user.id);
+  res.json({ success: true, count: ids.length });
+});
+
+// --- Bulk: slet flere assets (Editor+) ---
+router.post('/bulk/delete', requireAuth, requireRole('editor'), (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  const assets = db.prepare(`SELECT * FROM assets WHERE id IN (${placeholders})`).all(...ids);
+
+  for (const asset of assets) {
+    fs.unlink(path.join(config.uploadDir, asset.filename), () => {});
+    if (asset.has_thumbnail) {
+      fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
+    }
+  }
+  db.prepare(`DELETE FROM assets WHERE id IN (${placeholders})`).run(...ids);
+
+  logEvent('bulk_delete', `${req.session.user.name} slettede ${assets.length} assets`, req.session.user.id);
+  res.json({ success: true, count: assets.length });
 });
 
 // --- Detail ---

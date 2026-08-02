@@ -30,6 +30,10 @@ const api = {
     upload: (formData, onProgress) => uploadWithProgress('/api/assets/upload', formData, onProgress),
     update: (id, body) => apiFetch(`/api/assets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
     remove: (id) => apiFetch(`/api/assets/${id}`, { method: 'DELETE' }),
+    bulkMove: (ids, folder_id) => apiFetch('/api/assets/bulk/move', { method: 'POST', body: JSON.stringify({ ids, folder_id }) }),
+    bulkTag: (ids, tags) => apiFetch('/api/assets/bulk/tag', { method: 'POST', body: JSON.stringify({ ids, tags }) }),
+    bulkDelete: (ids) => apiFetch('/api/assets/bulk/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    zipUrl: (ids) => `/api/assets/zip?ids=${ids.join(',')}`,
   },
 
   folders: {

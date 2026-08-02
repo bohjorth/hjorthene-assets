@@ -22,11 +22,32 @@ router.get('/status', requireAuth, requireRole('admin'), (req, res) => {
   const fileCount = db.prepare('SELECT COUNT(*) as c FROM assets').get().c;
   const dbSize = fs.existsSync(config.dbFile) ? fs.statSync(config.dbFile).size : 0;
   const storageUsed = dirSize(config.uploadDir);
+
+  // Reel disk-plads på den partition uploads-mappen ligger på (ikke kun
+  // størrelsen af selve uploads-mappen) - så vi kan advare FØR disken er fuld.
+  let disk = null;
+  try {
+    const stats = fs.statfsSync(config.uploadDir);
+    const totalBytes = stats.blocks * stats.bsize;
+    const freeBytes = stats.bfree * stats.bsize;
+    const usedBytes = totalBytes - freeBytes;
+    disk = {
+      total_bytes: totalBytes,
+      free_bytes: freeBytes,
+      used_bytes: usedBytes,
+      used_percent: totalBytes ? Math.round((usedBytes / totalBytes) * 100) : 0,
+    };
+  } catch (err) {
+    // fs.statfsSync findes ikke på alle platforme/Node-versioner - fald tilbage til null
+    disk = null;
+  }
+
   res.json({
     database: { file: config.dbFile, size_bytes: dbSize, ok: true },
     storage_used_bytes: storageUsed,
     file_count: fileCount,
     user_count: db.prepare('SELECT COUNT(*) as c FROM users').get().c,
+    disk,
   });
 });
 

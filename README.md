@@ -159,6 +159,38 @@ tag-redigering.
 billede. Kører i baggrunden efter upload - blokerer ikke selve uploadet, og fejler stille
 (logges, men stopper aldrig uploadet) hvis modellen ikke kan indlæses.
 
+## Bulk-handlinger og ZIP-download
+
+I både grid- og listevisning kan flere assets markeres via afkrydsningsfelter (synlige
+ved hover, eller altid synlige når noget er valgt). Med markerede assets viser en
+værktøjslinje øverst i resultaterne:
+- **Download som ZIP** - streamer en ZIP med de valgte filer (ingen midlertidig fil på
+  serveren, streames direkte)
+- **Flyt til mappe** (Editor+)
+- **Tilføj tag** (Editor+) - tilføjer til alle valgte uden at fjerne eksisterende tags
+- **Slet** (Editor+)
+
+## Diskplads-advarsel og automatisk backup
+
+**Administration**-siden viser nu reelt diskforbrug for den partition uploads ligger på
+(ikke kun størrelsen af selve uploads-mappen), med farvet advarsel ved 75%/90% brug.
+
+Der følger et selvstændigt backup-script (`scripts/backup.sh`) med, som tager en
+konsistent SQLite-backup (via `sqlite3 .backup`, med fallback til filkopi) og en
+komprimeret kopi af uploads-mappen, samt rydder op i backups ældre end 30 dage
+(justerbart via `BACKUP_RETENTION_DAYS`). Aktivér den daglige, automatiske kørsel:
+
+```bash
+sudo cp nginx/hjorthene-assets-backup.service /etc/systemd/system/
+sudo cp nginx/hjorthene-assets-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now hjorthene-assets-backup.timer
+
+# Test at den virker med det samme, uden at vente til kl. 03:00:
+sudo systemctl start hjorthene-assets-backup.service
+sudo journalctl -u hjorthene-assets-backup.service -n 20 --no-pager
+```
+
 ## Roller
 
 | Rolle | Rettigheder |

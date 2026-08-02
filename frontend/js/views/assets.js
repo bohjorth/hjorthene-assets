@@ -7,6 +7,7 @@ const assetsState = {
   dir: 'desc',
   view: 'grid',
   folders: [],
+  selected: new Set(),
 };
 
 async function renderAssets(root, presetQuery = '') {
@@ -49,6 +50,7 @@ async function renderAssets(root, presetQuery = '') {
           </div>
           <button class="btn btn-ghost mobile-filter-toggle" id="mobile-filter-toggle">${icon('filter')} Filtre</button>
         </div>
+        <div id="bulk-toolbar"></div>
         <div id="asset-results"></div>
       </div>
     </div>
@@ -110,6 +112,7 @@ async function loadFolderTree() {
       if (e.target.closest('.folder-actions')) return;
       const id = item.dataset.folderId;
       assetsState.folderId = id ? parseInt(id, 10) : null;
+      assetsState.selected.clear();
       loadFolderTree();
       loadAssetResults();
       updateBreadcrumb();
@@ -152,6 +155,7 @@ async function loadCategoryFilters() {
   list.querySelectorAll('.category-filter-item').forEach((item) => {
     item.addEventListener('click', () => {
       assetsState.category = item.dataset.cat || null;
+      assetsState.selected.clear();
       loadCategoryFilters();
       loadAssetResults();
     });
@@ -167,6 +171,7 @@ async function loadTagFilters() {
   list.querySelectorAll('.tag-pill').forEach((pill) => {
     pill.addEventListener('click', () => {
       assetsState.tag = assetsState.tag === pill.dataset.tag ? null : pill.dataset.tag;
+      assetsState.selected.clear();
       loadTagFilters();
       loadAssetResults();
     });
@@ -204,11 +209,13 @@ async function loadAssetResults() {
       <div class="table-scroll">
       <table class="asset-table">
         <thead><tr>
+          <th style="width:32px;"><input type="checkbox" id="select-all-checkbox" /></th>
           <th>Navn</th><th>Type</th><th>Størrelse</th><th>Kategori</th><th>Tags</th><th>Upload dato</th><th></th>
         </tr></thead>
         <tbody>
           ${assets.map((a) => `
             <tr data-id="${a.id}">
+              <td><input type="checkbox" class="select-checkbox" data-select-id="${a.id}" ${assetsState.selected.has(a.id) ? 'checked' : ''} /></td>
               <td class="name-cell">${fileIcon(a.category)} ${escapeHtml(a.original_name)}</td>
               <td><span class="filetype-chip cat-${a.category}">${extOf(a.original_name)}</span></td>
               <td class="mono">${formatBytes(a.size)}</td>
@@ -222,7 +229,30 @@ async function loadAssetResults() {
       </table>
       </div>
     `;
+    document.getElementById('select-all-checkbox').addEventListener('change', (e) => {
+      assets.forEach((a) => (e.target.checked ? assetsState.selected.add(a.id) : assetsState.selected.delete(a.id)));
+      loadAssetResults();
+    });
   }
+
+  container.querySelectorAll('.asset-card-checkbox').forEach((label) => {
+    label.addEventListener('click', (e) => e.stopPropagation());
+  });
+
+  container.querySelectorAll('.select-checkbox').forEach((cb) => {
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', (e) => {
+      const id = parseInt(e.target.dataset.selectId, 10);
+      if (e.target.checked) assetsState.selected.add(id);
+      else assetsState.selected.delete(id);
+      renderBulkToolbar();
+      // Opdater kortets "selected"-styling uden at genindlæse hele listen
+      const card = container.querySelector(`.asset-card[data-id="${id}"]`);
+      if (card) card.classList.toggle('selected', e.target.checked);
+    });
+  });
+
+  renderBulkToolbar();
 
   container.querySelectorAll('[data-id]').forEach((el) => {
     el.addEventListener('click', () => openAssetDetail(parseInt(el.dataset.id, 10)));
@@ -238,10 +268,116 @@ async function loadAssetResults() {
   });
 }
 
+function renderBulkToolbar() {
+  const bar = document.getElementById('bulk-toolbar');
+  if (!bar) return;
+  const n = assetsState.selected.size;
+  const canEdit = ['editor', 'admin'].includes(currentUser.role);
+
+  if (!n) {
+    bar.innerHTML = '';
+    return;
+  }
+
+  bar.innerHTML = `
+    <div class="bulk-bar">
+      <span class="bulk-bar-count">${n} valgt</span>
+      <button class="btn btn-ghost btn-sm" id="bulk-zip-btn">${icon('download', 'icon icon-sm')} Download som ZIP</button>
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" id="bulk-move-btn">${icon('folder', 'icon icon-sm')} Flyt til mappe</button>` : ''}
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" id="bulk-tag-btn">${icon('tag', 'icon icon-sm')} Tilføj tag</button>` : ''}
+      ${canEdit ? `<button class="btn btn-danger btn-sm" id="bulk-delete-btn">${icon('trash', 'icon icon-sm')} Slet</button>` : ''}
+      <button class="btn btn-ghost btn-sm" id="bulk-clear-btn">${icon('close', 'icon icon-sm')} Fravælg alle</button>
+    </div>
+  `;
+
+  document.getElementById('bulk-zip-btn').addEventListener('click', () => {
+    window.location.href = api.assets.zipUrl(Array.from(assetsState.selected));
+  });
+
+  document.getElementById('bulk-clear-btn').addEventListener('click', () => {
+    assetsState.selected.clear();
+    loadAssetResults();
+  });
+
+  document.getElementById('bulk-move-btn')?.addEventListener('click', () => {
+    const options = [`<option value="">🗂 Alle assets (rod)</option>`]
+      .concat(assetsState.folders.map((f) => `<option value="${f.id}">${escapeHtml(f.name)}</option>`));
+    openModal(`
+      <div class="modal-header"><h3>Flyt ${n} asset(s)</h3><button class="modal-close">${icon('close')}</button></div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Vælg mappe</label>
+          <select id="bulk-move-folder" class="select-inline" style="width:100%;">${options.join('')}</select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Annuller</button>
+        <button class="btn btn-primary" id="bulk-move-confirm-btn">Flyt</button>
+      </div>
+    `);
+    document.getElementById('bulk-move-confirm-btn').addEventListener('click', async () => {
+      const folderId = document.getElementById('bulk-move-folder').value || null;
+      try {
+        await api.assets.bulkMove(Array.from(assetsState.selected), folderId);
+        toast(`${n} asset(s) flyttet`, 'success');
+        assetsState.selected.clear();
+        closeModal();
+        loadAssetResults();
+        loadFolderTree();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+
+  document.getElementById('bulk-tag-btn')?.addEventListener('click', () => {
+    openModal(`
+      <div class="modal-header"><h3>Tilføj tag til ${n} asset(s)</h3><button class="modal-close">${icon('close')}</button></div>
+      <div class="modal-body">
+        <div class="field">
+          <label>Tags (kommasepareret)</label>
+          <input type="text" id="bulk-tag-input" placeholder="fx marketing, 2027" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Annuller</button>
+        <button class="btn btn-primary" id="bulk-tag-confirm-btn">Tilføj</button>
+      </div>
+    `);
+    document.getElementById('bulk-tag-input').focus();
+    document.getElementById('bulk-tag-confirm-btn').addEventListener('click', async () => {
+      const tags = document.getElementById('bulk-tag-input').value.split(',').map((s) => s.trim()).filter(Boolean);
+      if (!tags.length) return;
+      try {
+        await api.assets.bulkTag(Array.from(assetsState.selected), tags);
+        toast(`Tags tilføjet til ${n} asset(s)`, 'success');
+        assetsState.selected.clear();
+        closeModal();
+        loadAssetResults();
+        loadTagFilters();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+
+  document.getElementById('bulk-delete-btn')?.addEventListener('click', async () => {
+    if (!confirm(`Slet ${n} asset(s)? Dette kan ikke fortrydes.`)) return;
+    try {
+      await api.assets.bulkDelete(Array.from(assetsState.selected));
+      toast(`${n} asset(s) slettet`, 'success');
+      assetsState.selected.clear();
+      loadAssetResults();
+      loadFolderTree();
+      loadCategoryFilters();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
 function assetCardHtml(a) {
   const isImage = a.mime.startsWith('image/');
+  const isSelected = assetsState.selected.has(a.id);
   return `
-    <div class="asset-card" data-id="${a.id}">
+    <div class="asset-card ${isSelected ? 'selected' : ''}" data-id="${a.id}">
+      <label class="asset-card-checkbox" title="Vælg">
+        <input type="checkbox" class="select-checkbox" data-select-id="${a.id}" ${isSelected ? 'checked' : ''} />
+      </label>
       <div class="asset-thumb">${isImage ? `<img src="/api/assets/${a.id}/thumbnail" loading="lazy" />` : fileIcon(a.category)}</div>
       <div class="asset-card-body">
         <div class="asset-card-name" title="${escapeHtml(a.original_name)}">${escapeHtml(a.original_name)}</div>

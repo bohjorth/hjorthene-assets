@@ -1,0 +1,11 @@
+# Kopier til /etc/systemd/system/hjorthene-assets-backup.timer
+[Unit]
+Description=Koer Hjorthene Assets backup dagligt
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
