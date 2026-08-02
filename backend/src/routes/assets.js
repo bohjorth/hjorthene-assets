@@ -9,6 +9,10 @@ const upload = require('../middleware/upload');
 const { requireAuth, requireRole } = require('../middleware/roles');
 const { categorize } = require('../utils/categorize');
 const { logEvent } = require('../utils/log');
+const { generateThumbnail } = require('../utils/thumbnail');
+const { extractExif } = require('../utils/exif');
+const { extractPdfText, extractImageText } = require('../utils/textExtract');
+const { suggestTags } = require('../utils/aiTagging');
 
 const router = express.Router();
 
@@ -28,7 +32,71 @@ function assetWithTags(assetId) {
   const tags = db
     .prepare('SELECT t.id, t.name FROM tags t JOIN asset_tags at ON at.tag_id = t.id WHERE at.asset_id = ?')
     .all(assetId);
-  return { ...asset, tags };
+  let exif = null;
+  if (asset.exif_json) {
+    try {
+      exif = JSON.parse(asset.exif_json);
+    } catch (e) {
+      exif = null;
+    }
+  }
+  return { ...asset, tags, exif };
+}
+
+/**
+ * Kører tekst-udtræk (PDF-tekst eller billed-OCR) i baggrunden EFTER svaret
+ * er sendt til klienten, så store filer ikke gør uploadet langsomt. Opdaterer
+ * asset-rækken med resultatet når den er klar. Fejler stille (logges kun) -
+ * manglende tekst-udtræk må aldrig ødelægge selve uploadet.
+ */
+function extractTextInBackground(assetId, filePath, mimeType) {
+  (async () => {
+    try {
+      let text = null;
+      if (mimeType === 'application/pdf') {
+        text = await extractPdfText(filePath);
+      } else if (mimeType.startsWith('image/')) {
+        text = await extractImageText(filePath);
+      }
+      if (text && text.trim()) {
+        db.prepare('UPDATE assets SET ocr_text = ? WHERE id = ?').run(text.trim().slice(0, 20000), assetId);
+      }
+    } catch (err) {
+      console.error(`Tekst-udtræk fejlede for asset #${assetId}:`, err.message);
+    }
+  })();
+}
+
+function getOrCreateTagRow(name) {
+  db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)').run(name);
+  return db.prepare('SELECT * FROM tags WHERE name = ?').get(name);
+}
+
+/**
+ * Foreslår og tilføjer tags automatisk via en selvhostet CLIP-model, HVIS
+ * indstillingen ai_tagging_enabled er slået til. Kører i baggrunden ligesom
+ * tekst-udtræk - blokerer aldrig selve uploadet, og fejler stille.
+ */
+function aiTagInBackground(assetId, filePath) {
+  (async () => {
+    try {
+      const setting = db.prepare("SELECT value FROM settings WHERE key = 'ai_tagging_enabled'").get();
+      if (!setting || setting.value !== 'true') return;
+
+      const suggested = await suggestTags(filePath);
+      if (!suggested.length) return;
+
+      const aiMarkerTag = getOrCreateTagRow('ai-foreslået');
+      db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, aiMarkerTag.id);
+      for (const label of suggested) {
+        const tagRow = getOrCreateTagRow(label);
+        db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, tagRow.id);
+      }
+      logEvent('ai_tag', `AI foreslog tags for asset #${assetId}: ${suggested.join(', ')}`, null);
+    } catch (err) {
+      console.error(`AI-tagging fejlede for asset #${assetId}:`, err.message);
+    }
+  })();
 }
 
 // --- Upload (Editor+) ---
@@ -36,21 +104,68 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
   try {
     const folderId = req.body.folder_id ? parseInt(req.body.folder_id, 10) : null;
     const results = [];
+    const duplicates = [];
+
     for (const file of req.files) {
       const filePath = path.join(config.uploadDir, file.filename);
       const sha256 = await sha256File(filePath);
+
+      // Dubletdetektion: samme indhold er allerede uploadet tidligere.
+      const existing = db.prepare('SELECT id, original_name FROM assets WHERE sha256 = ?').get(sha256);
+      if (existing) {
+        fs.unlink(filePath, () => {}); // fjern den lige uploadede fysiske kopi igen
+        duplicates.push({ name: file.originalname, existing_id: existing.id, existing_name: existing.original_name });
+        continue;
+      }
+
       const mimeType = file.mimetype || mime.lookup(file.originalname) || 'application/octet-stream';
       const category = categorize(mimeType, file.originalname);
+      const isImage = mimeType.startsWith('image/');
+
+      let hasThumbnail = 0;
+      if (isImage) {
+        try {
+          await generateThumbnail(filePath, path.join(config.uploadDir, `${file.filename}.thumb.jpg`));
+          hasThumbnail = 1;
+        } catch (err) {
+          console.error(`Thumbnail-generering fejlede for ${file.originalname}:`, err.message);
+        }
+      }
+
+      let exifJson = null;
+      if (isImage) {
+        const exifData = await extractExif(filePath);
+        if (exifData) exifJson = JSON.stringify(exifData);
+      }
+
       const info = db
         .prepare(
-          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id, has_thumbnail, exif_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(file.filename, file.originalname, file.size, mimeType, category, sha256, folderId, req.session.user.id);
-      results.push(assetWithTags(info.lastInsertRowid));
+        .run(
+          file.filename,
+          file.originalname,
+          file.size,
+          mimeType,
+          category,
+          sha256,
+          folderId,
+          req.session.user.id,
+          hasThumbnail,
+          exifJson
+        );
+
+      const assetId = info.lastInsertRowid;
+      results.push(assetWithTags(assetId));
       logEvent('upload', `${req.session.user.name} uploadede ${file.originalname}`, req.session.user.id);
+
+      // PDF-tekst/OCR kører i baggrunden - blokerer ikke svaret.
+      extractTextInBackground(assetId, filePath, mimeType);
+      if (isImage) aiTagInBackground(assetId, filePath);
     }
-    res.json({ assets: results });
+
+    res.json({ assets: results, duplicates });
   } catch (err) {
     next(err);
   }
@@ -71,8 +186,8 @@ router.get('/', requireAuth, (req, res) => {
   }
   if (q) {
     sql += ` LEFT JOIN asset_tags qat ON qat.asset_id = a.id LEFT JOIN tags qt ON qt.id = qat.tag_id`;
-    where.push('(a.original_name LIKE ? OR qt.name LIKE ? OR a.category LIKE ? OR a.mime LIKE ?)');
-    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+    where.push('(a.original_name LIKE ? OR qt.name LIKE ? OR a.category LIKE ? OR a.mime LIKE ? OR a.ocr_text LIKE ?)');
+    params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
   if (folder_id) {
     where.push('a.folder_id = ?');
@@ -159,6 +274,9 @@ router.delete('/:id', requireAuth, requireRole('editor'), (req, res) => {
   if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
   const filePath = path.join(config.uploadDir, asset.filename);
   fs.unlink(filePath, () => {});
+  if (asset.has_thumbnail) {
+    fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
+  }
   db.prepare('DELETE FROM assets WHERE id = ?').run(asset.id);
   logEvent('delete', `${req.session.user.name} slettede ${asset.original_name}`, req.session.user.id);
   res.json({ success: true });
@@ -170,6 +288,26 @@ router.get('/:id/download', requireAuth, (req, res) => {
   if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
   const filePath = path.join(config.uploadDir, asset.filename);
   res.download(filePath, asset.original_name);
+});
+
+// --- Thumbnail (mindre, hurtigere version til grid-visning) ---
+router.get('/:id/thumbnail', requireAuth, (req, res) => {
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+
+  if (asset.has_thumbnail) {
+    const thumbPath = path.join(config.uploadDir, `${asset.filename}.thumb.jpg`);
+    if (fs.existsSync(thumbPath)) {
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+      return fs.createReadStream(thumbPath).pipe(res);
+    }
+  }
+
+  // Fallback: ingen thumbnail (fx uploadet før denne funktion fandtes) - brug originalen.
+  const filePath = path.join(config.uploadDir, asset.filename);
+  res.setHeader('Content-Type', asset.mime);
+  fs.createReadStream(filePath).pipe(res);
 });
 
 // --- Inline preview (images/pdf/video/audio) ---

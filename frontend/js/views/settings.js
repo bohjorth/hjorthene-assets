@@ -22,6 +22,16 @@ async function renderSettings(root) {
         <label>Branding-navn</label>
         <input type="text" id="s-branding" value="${escapeHtml(settings.branding_name || '')}" />
       </div>
+      <div class="field" style="border-top:1px solid var(--border-soft); padding-top:16px;">
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+          <input type="checkbox" id="s-ai-tagging" ${settings.ai_tagging_enabled === 'true' ? 'checked' : ''} style="width:auto;" />
+          AI-tagging (eksperimentel, selvhostet)
+        </label>
+        <p class="section-sub" style="margin:6px 0 0;">
+          Foreslår automatisk tags for nye billede-uploads via en lokal CLIP-model (ingen cloud, ingen ekstra omkostning).
+          Bruger et par sekunder CPU-tid pr. billede, og downloader modellen (~150-300 MB) ved første brug.
+        </p>
+      </div>
       <button class="btn btn-primary" id="save-settings-btn">Gem indstillinger</button>
     </div>
   `;
@@ -33,6 +43,7 @@ async function renderSettings(root) {
         allowed_file_types: document.getElementById('s-allowed-types').value,
         max_upload_size_mb: document.getElementById('s-max-size').value,
         branding_name: document.getElementById('s-branding').value,
+        ai_tagging_enabled: document.getElementById('s-ai-tagging').checked ? 'true' : 'false',
       });
       toast('Indstillinger gemt', 'success');
     } catch (e) { toast(e.message, 'error'); }

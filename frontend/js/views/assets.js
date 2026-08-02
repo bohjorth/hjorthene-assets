@@ -242,7 +242,7 @@ function assetCardHtml(a) {
   const isImage = a.mime.startsWith('image/');
   return `
     <div class="asset-card" data-id="${a.id}">
-      <div class="asset-thumb">${isImage ? `<img src="/api/assets/${a.id}/preview" loading="lazy" />` : fileIcon(a.category)}</div>
+      <div class="asset-thumb">${isImage ? `<img src="/api/assets/${a.id}/thumbnail" loading="lazy" />` : fileIcon(a.category)}</div>
       <div class="asset-card-body">
         <div class="asset-card-name" title="${escapeHtml(a.original_name)}">${escapeHtml(a.original_name)}</div>
         <div class="asset-card-meta">
@@ -342,11 +342,18 @@ async function handleUploadFiles(fileList) {
   if (assetsState.folderId) formData.append('folder_id', assetsState.folderId);
 
   try {
-    await api.assets.upload(formData, (pct) => {
+    const result = await api.assets.upload(formData, (pct) => {
       row.querySelector('.mono').textContent = `${pct}%`;
       row.querySelector('.upload-progress-fill').style.width = `${pct}%`;
     });
-    toast(`${files.length} fil(er) uploadet`, 'success');
+    const uploadedCount = result.assets.length;
+    const dupCount = result.duplicates?.length || 0;
+
+    if (uploadedCount) toast(`${uploadedCount} fil(er) uploadet`, 'success');
+    if (dupCount) {
+      const names = result.duplicates.map((d) => d.name).join(', ');
+      toast(`${dupCount} fil(er) sprunget over - findes allerede: ${names}`, 'error');
+    }
     loadAssetResults();
     loadFolderTree();
     loadCategoryFilters();
@@ -538,6 +545,25 @@ async function openAssetDetail(id) {
   else if (isAudio) previewHtml = `<audio src="/api/assets/${asset.id}/preview" controls style="width:90%"></audio>`;
   else if (isPdf) previewHtml = `<iframe src="/api/assets/${asset.id}/preview" style="width:100%;height:100%;border:none;"></iframe>`;
 
+  const exifRows = [];
+  if (asset.exif?.camera_make || asset.exif?.camera_model) {
+    exifRows.push(`<div class="meta-row"><span class="meta-key">Kamera</span><span class="meta-val">${escapeHtml([asset.exif.camera_make, asset.exif.camera_model].filter(Boolean).join(' '))}</span></div>`);
+  }
+  if (asset.exif?.date_taken) {
+    exifRows.push(`<div class="meta-row"><span class="meta-key">Taget den</span><span class="meta-val">${formatDate(asset.exif.date_taken)}</span></div>`);
+  }
+  if (asset.exif?.gps) {
+    const { lat, lon } = asset.exif.gps;
+    exifRows.push(`<div class="meta-row"><span class="meta-key">GPS</span><span class="meta-val"><a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=15/${lat}/${lon}" target="_blank" rel="noopener">${lat.toFixed(5)}, ${lon.toFixed(5)}</a></span></div>`);
+  }
+
+  const ocrSection = asset.ocr_text ? `
+    <details class="ocr-details">
+      <summary>Udtrukket tekst (${asset.mime === 'application/pdf' ? 'fra PDF' : 'OCR'})</summary>
+      <pre class="ocr-text">${escapeHtml(asset.ocr_text)}</pre>
+    </details>
+  ` : '';
+
   openModal(`
     <div class="modal-header"><h3>${escapeHtml(asset.original_name)}</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
@@ -550,6 +576,7 @@ async function openAssetDetail(id) {
             <div class="meta-row"><span class="meta-key">Kategori</span><span class="meta-val">${asset.category}</span></div>
             <div class="meta-row"><span class="meta-key">SHA256</span><span class="meta-val" style="font-size:10px;">${asset.sha256}</span></div>
             <div class="meta-row"><span class="meta-key">Upload dato</span><span class="meta-val">${formatDate(asset.created_at)}</span></div>
+            ${exifRows.join('')}
           </div>
           ${canEdit ? `
             <div class="field" style="margin-top:16px;">
@@ -563,6 +590,7 @@ async function openAssetDetail(id) {
           ` : ''}
         </div>
       </div>
+      ${ocrSection}
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" id="copy-url-btn">${icon('copy')} Kopiér URL</button>

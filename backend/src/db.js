@@ -85,12 +85,26 @@ CREATE INDEX IF NOT EXISTS idx_assets_category ON assets(category);
 CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 `);
 
+// Migrationer: nye kolonner tilføjet efter v1.0. Kører sikkert/idempotent ved
+// hver opstart, så eksisterende databaser opdateres uden manuelt indgreb.
+const assetColumns = db.prepare('PRAGMA table_info(assets)').all().map((c) => c.name);
+if (!assetColumns.includes('has_thumbnail')) {
+  db.exec('ALTER TABLE assets ADD COLUMN has_thumbnail INTEGER DEFAULT 0');
+}
+if (!assetColumns.includes('exif_json')) {
+  db.exec('ALTER TABLE assets ADD COLUMN exif_json TEXT');
+}
+if (!assetColumns.includes('ocr_text')) {
+  db.exec('ALTER TABLE assets ADD COLUMN ocr_text TEXT');
+}
+
 // Default settings
 const defaultSettings = {
   upload_path: config.uploadDir,
   allowed_file_types: '*',
   max_upload_size_mb: String(config.maxUploadSizeMb),
   branding_name: 'Hjorthene Assets',
+  ai_tagging_enabled: 'false',
 };
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [k, v] of Object.entries(defaultSettings)) insertSetting.run(k, v);

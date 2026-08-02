@@ -117,6 +117,48 @@ vil hente ikonerne som rå filer uden om appen (fx til et andet dashboard) - det
 script beskærer ikke automatisk.
 Husk attribution ved brug: *"App icons courtesy of selfh.st/icons"*.
 
+## Thumbnails, EXIF, dubletdetektion og tekstsøgning (OCR/PDF)
+
+Ved upload af billeder:
+- Der genereres automatisk en rigtig thumbnail (400px, JPEG) via `sharp` - grid-visningen
+  henter den lette thumbnail i stedet for at skalere det fulde billede i browseren.
+- EXIF-data (kamera, dato taget, GPS) udtrækkes via `exifr` og vises i detaljevisningen,
+  hvis billedet indeholder det.
+- SHA256-hashen bruges til at opdage dubletter: prøver du at uploade en fil hvis indhold
+  allerede findes, springes den automatisk over (du får besked om hvilken eksisterende fil
+  den matcher).
+
+Ved upload af billeder og PDF'er udtrækkes søgbar tekst i baggrunden (blokerer ikke selve
+uploadet):
+- **PDF'er:** indlejret tekst udtrækkes direkte (`pdf-parse`) - hurtigt og præcist for
+  "rigtige" PDF'er (Word/Office-eksport, browser-print osv.). Scannede/billedbaserede
+  PDF'er OCR'es ikke i denne version.
+- **Billeder:** OCR via `tesseract.js` (sprog: dansk + engelsk), kører 100% lokalt på
+  serveren - ingen data sendes til en cloud-tjeneste.
+
+Den udtrukne tekst indgår automatisk i den globale søgning, og kan ses (foldet sammen)
+under et assets metadata i detaljevisningen.
+
+**Ingen nye systemkrav** for thumbnails/EXIF/PDF-tekst (rene npm-pakker). OCR bruger
+Tesseract.js' egen WASM-motor og downloader sprogdata (dan+eng) automatisk ved første
+brug - kræver blot udgående internetadgang første gang.
+
+## AI-tagging (eksperimentel, selvhostet)
+
+Under **Indstillinger** kan admin slå **AI-tagging** til (fra som standard). Når aktiveret,
+foreslår en lokal CLIP-model (`Xenova/clip-vit-base-patch32` via `@huggingface/transformers`,
+kører i Node via WASM/ONNX - ingen Python, ingen cloud-kald) automatisk 0-3 danske tags for
+nye billede-uploads, ud fra en fast liste af ~30 begreber (logo, kvittering, menukort,
+person, bygning, produktfoto osv. - se `backend/src/utils/aiTagging.js` for at
+tilføje/ændre kategorier). Asset'et tagges desuden altid med `ai-foreslået`, så I nemt kan
+filtrere på hvilke tags der kom fra AI'en, og fjerne dem I er uenige i via normal
+tag-redigering.
+
+**Ressourceforbrug:** modellen downloades til `backend/data/models/` ved første brug
+(~150-300 MB, kræver internetadgang den ene gang), og bruger et par sekunders CPU-tid pr.
+billede. Kører i baggrunden efter upload - blokerer ikke selve uploadet, og fejler stille
+(logges, men stopper aldrig uploadet) hvis modellen ikke kan indlæses.
+
 ## Roller
 
 | Rolle | Rettigheder |
