@@ -8,6 +8,7 @@ function formatBytes(bytes) {
 function formatDate(iso) {
   if (!iso) return '—';
   const d = new Date(iso.replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return '—';
   return d.toLocaleDateString('da-DK', { year: 'numeric', month: 'short', day: 'numeric' }) +
     ' ' + d.toLocaleTimeString('da-DK', { hour: '2-digit', minute: '2-digit' });
 }
