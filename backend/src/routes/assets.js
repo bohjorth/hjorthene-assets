@@ -12,6 +12,7 @@ const { categorize } = require('../utils/categorize');
 const { logEvent } = require('../utils/log');
 const { generateThumbnail, generateVideoThumbnail } = require('../utils/thumbnail');
 const { generateSvgThumbnail } = require('../utils/svgThumbnail');
+const { sanitizeSvgBuffer } = require('../utils/sanitizeSvg');
 const { extractExif } = require('../utils/exif');
 const { extractPdfText, extractImageText } = require('../utils/textExtract');
 const { suggestTags } = require('../utils/aiTagging');
@@ -136,9 +137,28 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
     const folderId = req.body.folder_id ? parseInt(req.body.folder_id, 10) : null;
     const results = [];
     const duplicates = [];
+    const rejected = [];
+
+    const maxSizeSetting = db.prepare("SELECT value FROM settings WHERE key = 'max_upload_size_mb'").get();
+    const maxSizeBytes = (maxSizeSetting?.value ? parseInt(maxSizeSetting.value, 10) : config.maxUploadSizeMb) * 1024 * 1024;
 
     for (const file of req.files) {
       const filePath = path.join(config.uploadDir, file.filename);
+
+      if (file.size > maxSizeBytes) {
+        fs.unlink(filePath, () => {});
+        rejected.push({ name: file.originalname, reason: `Overskrider maks. uploadstørrelse (${Math.round(maxSizeBytes / 1024 / 1024)} MB)` });
+        continue;
+      }
+
+      // SVG kan indeholde <script>/event-handlers - rens FØR vi beregner
+      // sha256, så hash/dublet-tjek matcher det indhold der reelt serveres.
+      const uploadMime = file.mimetype || mime.lookup(file.originalname) || 'application/octet-stream';
+      if (uploadMime === 'image/svg+xml' || file.originalname.toLowerCase().endsWith('.svg')) {
+        const cleaned = sanitizeSvgBuffer(fs.readFileSync(filePath));
+        fs.writeFileSync(filePath, cleaned);
+      }
+
       const sha256 = await sha256File(filePath);
 
       // Dubletdetektion: samme indhold er allerede uploadet tidligere.
@@ -218,7 +238,7 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
       runBackgroundProcessing(assetId, filePath, mimeType);
     }
 
-    res.json({ assets: results, duplicates });
+    res.json({ assets: results, duplicates, rejected });
   } catch (err) {
     next(err);
   }
@@ -229,7 +249,7 @@ router.get('/', requireAuth, (req, res) => {
   const { q, folder_id, category, tag, type, sort = 'created_at', dir = 'desc', date_from, date_to, min_size, max_size } = req.query;
 
   let sql = `SELECT DISTINCT a.* FROM assets a`;
-  const where = [];
+  const where = ['a.deleted_at IS NULL'];
   const params = [];
 
   if (tag) {
@@ -371,7 +391,27 @@ router.post('/bulk/delete', requireAuth, requireRole('editor'), (req, res) => {
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
 
   const placeholders = ids.map(() => '?').join(',');
-  const assets = db.prepare(`SELECT * FROM assets WHERE id IN (${placeholders})`).all(...ids);
+  db.prepare(`UPDATE assets SET deleted_at = datetime('now') WHERE id IN (${placeholders})`).run(...ids);
+
+  logEvent('bulk_delete', `${req.session.user.name} flyttede ${ids.length} assets til papirkurven`, req.session.user.id);
+  res.json({ success: true, count: ids.length });
+});
+
+// --- Bulk: gendan flere assets fra papirkurven (Editor+) ---
+router.post('/bulk/restore', requireAuth, requireRole('editor'), (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'Ingen assets valgt' });
+
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(`UPDATE assets SET deleted_at = NULL WHERE id IN (${placeholders})`).run(...ids);
+
+  logEvent('bulk_restore', `${req.session.user.name} gendannede ${ids.length} assets fra papirkurven`, req.session.user.id);
+  res.json({ success: true, count: ids.length });
+});
+
+// --- Tøm hele papirkurven permanent (Admin only) ---
+router.post('/trash/empty', requireAuth, requireRole('admin'), (req, res) => {
+  const assets = db.prepare('SELECT * FROM assets WHERE deleted_at IS NOT NULL').all();
 
   for (const asset of assets) {
     fs.unlink(path.join(config.uploadDir, asset.filename), () => {});
@@ -379,10 +419,19 @@ router.post('/bulk/delete', requireAuth, requireRole('editor'), (req, res) => {
       fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
     }
   }
-  db.prepare(`DELETE FROM assets WHERE id IN (${placeholders})`).run(...ids);
+  db.prepare('DELETE FROM assets WHERE deleted_at IS NOT NULL').run();
 
-  logEvent('bulk_delete', `${req.session.user.name} slettede ${assets.length} assets`, req.session.user.id);
+  logEvent('empty_trash', `${req.session.user.name} tømte papirkurven (${assets.length} assets slettet permanent)`, req.session.user.id);
   res.json({ success: true, count: assets.length });
+});
+
+// --- Papirkurv: liste over soft-slettede assets ---
+// Placeret FØR /:id-ruterne, ellers ville "trash" blive fortolket som et :id.
+router.get('/trash', requireAuth, (req, res) => {
+  const assets = db
+    .prepare('SELECT * FROM assets WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC')
+    .all();
+  res.json({ assets: assets.map((a) => assetWithTags(a.id)) });
 });
 
 // --- Detail ---
@@ -425,13 +474,31 @@ router.put('/:id', requireAuth, requireRole('editor'), (req, res) => {
 router.delete('/:id', requireAuth, requireRole('editor'), (req, res) => {
   const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+  db.prepare("UPDATE assets SET deleted_at = datetime('now') WHERE id = ?").run(asset.id);
+  logEvent('delete', `${req.session.user.name} flyttede ${asset.original_name} til papirkurven`, req.session.user.id);
+  res.json({ success: true });
+});
+
+// --- Gendan et asset fra papirkurven (Editor+) ---
+router.post('/:id/restore', requireAuth, requireRole('editor'), (req, res) => {
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+  db.prepare('UPDATE assets SET deleted_at = NULL WHERE id = ?').run(asset.id);
+  logEvent('restore', `${req.session.user.name} gendannede ${asset.original_name} fra papirkurven`, req.session.user.id);
+  res.json({ asset: assetWithTags(asset.id) });
+});
+
+// --- Slet permanent fra papirkurven (Admin only) ---
+router.delete('/:id/permanent', requireAuth, requireRole('admin'), (req, res) => {
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
   const filePath = path.join(config.uploadDir, asset.filename);
   fs.unlink(filePath, () => {});
   if (asset.has_thumbnail) {
     fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
   }
   db.prepare('DELETE FROM assets WHERE id = ?').run(asset.id);
-  logEvent('delete', `${req.session.user.name} slettede ${asset.original_name}`, req.session.user.id);
+  logEvent('permanent_delete', `${req.session.user.name} slettede ${asset.original_name} permanent`, req.session.user.id);
   res.json({ success: true });
 });
 
@@ -468,6 +535,11 @@ router.post('/:id/versions', requireAuth, requireRole('editor'), upload.single('
     // slettes IKKE her, kun ved sletning af hele asset'et.
 
     const newFilePath = path.join(config.uploadDir, req.file.filename);
+    const uploadMime = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
+    if (uploadMime === 'image/svg+xml' || req.file.originalname.toLowerCase().endsWith('.svg')) {
+      const cleaned = sanitizeSvgBuffer(fs.readFileSync(newFilePath));
+      fs.writeFileSync(newFilePath, cleaned);
+    }
     const sha256 = await sha256File(newFilePath);
     const mimeType = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
     const isImage = mimeType.startsWith('image/');
@@ -525,6 +597,47 @@ router.get('/:id/versions/:versionId/download', requireAuth, (req, res) => {
   const filePath = path.join(config.uploadDir, version.filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Filen findes ikke længere på disk' });
   res.download(filePath, version.original_name);
+});
+
+// --- Offentlige delelinks ---
+router.get('/:id/share', requireAuth, (req, res) => {
+  const links = db
+    .prepare("SELECT * FROM share_links WHERE asset_id = ? AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC")
+    .all(req.params.id);
+  res.json({ links });
+});
+
+router.post('/:id/share', requireAuth, requireRole('editor'), (req, res) => {
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+
+  const { expires_in } = req.body; // '1d' | '7d' | '30d' | 'never'
+  let expiresAt = null;
+  const days = { '1d': 1, '7d': 7, '30d': 30 }[expires_in];
+  if (days) {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    expiresAt = d.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  const token = crypto.randomBytes(24).toString('hex');
+  db.prepare('INSERT INTO share_links (asset_id, token, expires_at, created_by) VALUES (?, ?, ?, ?)').run(
+    asset.id,
+    token,
+    expiresAt,
+    req.session.user.id
+  );
+
+  logEvent('share_created', `${req.session.user.name} oprettede et delelink for ${asset.original_name}`, req.session.user.id);
+  res.json({ token, expires_at: expiresAt, url: `${config.baseUrl}/api/share/${token}` });
+});
+
+router.delete('/:id/share/:linkId', requireAuth, requireRole('editor'), (req, res) => {
+  const link = db.prepare('SELECT * FROM share_links WHERE id = ? AND asset_id = ?').get(req.params.linkId, req.params.id);
+  if (!link) return res.status(404).json({ error: 'Link ikke fundet' });
+  db.prepare('DELETE FROM share_links WHERE id = ?').run(link.id);
+  logEvent('share_revoked', `${req.session.user.name} tilbagekaldte et delelink`, req.session.user.id);
+  res.json({ success: true });
 });
 
 // --- Download ---

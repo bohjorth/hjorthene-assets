@@ -68,6 +68,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/logs', require('./routes/logs'));
 app.use('/api/import/selfhosted', require('./routes/importSelfhosted'));
 app.use('/api/admin/local-users', require('./routes/localUsers'));
+app.use('/api/share', require('./routes/share'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
@@ -83,3 +84,28 @@ app.use((err, req, res, next) => {
 app.listen(config.port, () => {
   console.log(`Hjorthene Assets backend kører på port ${config.port}`);
 });
+
+// Rydder automatisk assets der har ligget i papirkurven i mere end 30 dage.
+// Kører ved opstart og derefter hver 6. time - ingen separat cron/systemd-timer
+// nødvendig for dette.
+function purgeOldTrash() {
+  try {
+    const old = db
+      .prepare("SELECT * FROM assets WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-30 days')")
+      .all();
+    for (const asset of old) {
+      fs.unlink(path.join(config.uploadDir, asset.filename), () => {});
+      if (asset.has_thumbnail) {
+        fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
+      }
+    }
+    if (old.length) {
+      db.prepare("DELETE FROM assets WHERE deleted_at IS NOT NULL AND deleted_at < datetime('now', '-30 days')").run();
+      console.log(`Papirkurv-oprydning: ${old.length} asset(s) permanent slettet (>30 dage i papirkurven).`);
+    }
+  } catch (err) {
+    console.error('Papirkurv-oprydning fejlede:', err.message);
+  }
+}
+purgeOldTrash();
+setInterval(purgeOldTrash, 6 * 60 * 60 * 1000);

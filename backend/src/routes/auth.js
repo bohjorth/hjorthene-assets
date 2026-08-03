@@ -4,6 +4,7 @@ const config = require('../config');
 const db = require('../db');
 const { logEvent } = require('../utils/log');
 const { verifyPassword } = require('../utils/password');
+const { checkRateLimit, resetRateLimit } = require('../middleware/rateLimit');
 
 const router = express.Router();
 
@@ -55,12 +56,20 @@ router.post('/local-login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email og password påkrævet' });
 
+  const rateLimitKey = req.ip;
+  const rateLimit = checkRateLimit(rateLimitKey);
+  if (!rateLimit.allowed) {
+    logEvent('login_rate_limited', `For mange login-forsøg fra ${req.ip}`, null);
+    return res.status(429).json({ error: `For mange forsøg. Prøv igen om ${Math.ceil(rateLimit.retryAfterSeconds / 60)} minut(ter).` });
+  }
+
   const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_local = 1').get(email);
   if (!user || !verifyPassword(password, user.password_hash)) {
     logEvent('login_failed', `Mislykket lokalt login-forsøg for ${email}`, null);
     return res.status(401).json({ error: 'Forkert email eller password' });
   }
 
+  resetRateLimit(rateLimitKey);
   db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
   req.session.user = { id: user.id, email: user.email, name: user.name, role: user.role };
   logEvent('login', `${user.name} logged in (lokal test-bruger)`, user.id);

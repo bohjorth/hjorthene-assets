@@ -237,6 +237,26 @@ login-siden. Tænkt til test og nødadgang (hvis Authentik fx er nede) - ikke ti
 daglig brug. Password hashes med Node's indbyggede `crypto.scrypt` (ingen ekstra
 afhængighed). Password kan nulstilles og brugeren slettes fra samme panel.
 
+## Sikkerhed og databeskyttelse
+
+- **SVG-rensning:** al SVG-indhold (uploads, nye versioner, selfhosted-import) renses
+  for `<script>`, event-handler-attributter (`onload` osv.) og `javascript:`-URI'er via
+  `sanitize-html` med en allowlist-tilgang, før det gemmes/serveres. Beskytter mod
+  stored XSS via ondsindet SVG-upload.
+- **Filtype/størrelse håndhæves reelt:** "Tilladte filtyper" og "Maks. uploadstørrelse"
+  i Indstillinger læses nu live fra databasen ved hver upload (var tidligere kun
+  kosmetisk - læste fra en ubrugt statisk værdi).
+- **Rate-limiting på lokalt login:** max 5 forsøg pr. 15 minutter pr. IP-adresse
+  (in-memory, nulstilles ved genstart af serveren).
+- **Papirkurv:** sletning er soft-delete (`deleted_at`) i stedet for permanent med det
+  samme. Gendan fra **Papirkurv** i navigationen, eller lad det ligge - alt ældre end
+  30 dage ryddes automatisk (tjekkes hver 6. time). Permanent sletning/tøm papirkurv
+  kræver Admin-rollen.
+- **Offentlige delelinks:** "Del offentligt" i detaljevisningen opretter et
+  uautentificeret link (`/api/share/<token>`) med valgfri udløbsdato (1/7/30 dage eller
+  aldrig). Kan tilbagekaldes når som helst. Beskyttelsen ligger i en lang, tilfældig
+  token - ikke i login.
+
 ## Roller
 
 | Rolle | Rettigheder |

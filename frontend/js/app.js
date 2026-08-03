@@ -5,6 +5,7 @@ const VIEW_RENDERERS = {
   dashboard: renderDashboard,
   assets: renderAssets,
   collections: renderCollections,
+  trash: renderTrash,
   settings: renderSettings,
   admin: renderAdmin,
 };
@@ -105,7 +106,7 @@ function navigateTo(view, searchQuery) {
 }
 
 function labelFor(view) {
-  return { dashboard: 'Dashboard', assets: 'Assets', collections: 'Collections', settings: 'Indstillinger', admin: 'Administration' }[view] || view;
+  return { dashboard: 'Dashboard', assets: 'Assets', collections: 'Collections', trash: 'Papirkurv', settings: 'Indstillinger', admin: 'Administration' }[view] || view;
 }
 
 boot();

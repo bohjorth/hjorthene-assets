@@ -111,6 +111,22 @@ if (!userColumns.includes('password_hash')) {
 if (!userColumns.includes('is_local')) {
   db.exec('ALTER TABLE users ADD COLUMN is_local INTEGER DEFAULT 0');
 }
+if (!assetColumns.includes('deleted_at')) {
+  db.exec('ALTER TABLE assets ADD COLUMN deleted_at TEXT');
+}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS share_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  token TEXT UNIQUE NOT NULL,
+  expires_at TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_token ON share_links(token);
+CREATE INDEX IF NOT EXISTS idx_share_links_asset ON share_links(asset_id);
+`);
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS asset_versions (

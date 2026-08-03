@@ -9,6 +9,7 @@ const { logEvent } = require('../utils/log');
 const { normalizeSvg } = require('../utils/svg');
 const { autoCropSvg } = require('../utils/svgCrop');
 const { generateSvgThumbnail } = require('../utils/svgThumbnail');
+const { sanitizeSvgBuffer } = require('../utils/sanitizeSvg');
 const CATALOG = require('../data/selfhostedIcons');
 
 const router = express.Router();
@@ -56,7 +57,8 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
         try {
           const response = await fetch(`${CDN_BASE}/${ref}.svg`);
           if (response.ok) {
-            buffer = normalizeSvg(Buffer.from(await response.arrayBuffer()));
+            buffer = sanitizeSvgBuffer(Buffer.from(await response.arrayBuffer()));
+            buffer = normalizeSvg(buffer);
             buffer = await autoCropSvg(buffer);
             matchedRef = ref;
             break;
@@ -191,7 +193,8 @@ router.post('/icons', requireAuth, requireRole('editor'), async (req, res, next)
         try {
           const response = await fetch(url);
           if (response.ok) {
-            buffer = normalizeSvg(Buffer.from(await response.arrayBuffer()));
+            buffer = sanitizeSvgBuffer(Buffer.from(await response.arrayBuffer()));
+            buffer = normalizeSvg(buffer);
             buffer = await autoCropSvg(buffer);
             break;
           }

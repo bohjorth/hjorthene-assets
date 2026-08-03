@@ -41,9 +41,17 @@ const api = {
     bulkMove: (ids, folder_id) => apiFetch('/api/assets/bulk/move', { method: 'POST', body: JSON.stringify({ ids, folder_id }) }),
     bulkTag: (ids, tags) => apiFetch('/api/assets/bulk/tag', { method: 'POST', body: JSON.stringify({ ids, tags }) }),
     bulkDelete: (ids) => apiFetch('/api/assets/bulk/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+    bulkRestore: (ids) => apiFetch('/api/assets/bulk/restore', { method: 'POST', body: JSON.stringify({ ids }) }),
     zipUrl: (ids) => `/api/assets/zip?ids=${ids.join(',')}`,
     versions: (id) => apiFetch(`/api/assets/${id}/versions`),
     uploadVersion: (id, formData, onProgress) => uploadWithProgress(`/api/assets/${id}/versions`, formData, onProgress),
+    trash: () => apiFetch('/api/assets/trash'),
+    restore: (id) => apiFetch(`/api/assets/${id}/restore`, { method: 'POST' }),
+    permanentDelete: (id) => apiFetch(`/api/assets/${id}/permanent`, { method: 'DELETE' }),
+    emptyTrash: () => apiFetch('/api/assets/trash/empty', { method: 'POST' }),
+    listShares: (id) => apiFetch(`/api/assets/${id}/share`),
+    createShare: (id, expiresIn) => apiFetch(`/api/assets/${id}/share`, { method: 'POST', body: JSON.stringify({ expires_in: expiresIn }) }),
+    revokeShare: (id, linkId) => apiFetch(`/api/assets/${id}/share/${linkId}`, { method: 'DELETE' }),
   },
 
   folders: {

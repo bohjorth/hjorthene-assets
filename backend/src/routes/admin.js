@@ -115,4 +115,30 @@ router.post('/generate-missing-thumbnails', requireAuth, requireRole('admin'), a
   }
 });
 
+// Samlet oversigt over alle aktive delelinks på tværs af assets.
+router.get('/share-links', requireAuth, requireRole('admin'), (req, res) => {
+  const links = db
+    .prepare(
+      `SELECT sl.id, sl.token, sl.expires_at, sl.created_at,
+              a.id as asset_id, a.original_name as asset_name, a.has_thumbnail,
+              u.name as created_by_name
+       FROM share_links sl
+       JOIN assets a ON a.id = sl.asset_id
+       LEFT JOIN users u ON u.id = sl.created_by
+       WHERE sl.expires_at IS NULL OR sl.expires_at > datetime('now')
+       ORDER BY sl.created_at DESC`
+    )
+    .all();
+  res.json({ links });
+});
+
+// Tilbagekald et delelink direkte fra admin-oversigten (uden at kende asset-ID'et separat).
+router.delete('/share-links/:id', requireAuth, requireRole('admin'), (req, res) => {
+  const link = db.prepare('SELECT * FROM share_links WHERE id = ?').get(req.params.id);
+  if (!link) return res.status(404).json({ error: 'Link ikke fundet' });
+  db.prepare('DELETE FROM share_links WHERE id = ?').run(link.id);
+  logEvent('share_revoked', `${req.session.user.name} tilbagekaldte et delelink fra admin-oversigten`, req.session.user.id);
+  res.json({ success: true });
+});
+
 module.exports = router;

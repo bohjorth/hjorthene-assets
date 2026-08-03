@@ -412,7 +412,7 @@ function renderBulkToolbar() {
   });
 
   document.getElementById('bulk-delete-btn')?.addEventListener('click', async () => {
-    if (!confirm(`Slet ${n} asset(s)? Dette kan ikke fortrydes.`)) return;
+    if (!confirm(`Flyt ${n} asset(s) til papirkurven?`)) return;
     try {
       await api.assets.bulkDelete(Array.from(assetsState.selected));
       toast(`${n} asset(s) slettet`, 'success');
@@ -540,12 +540,17 @@ async function handleUploadFiles(fileList) {
     });
     const uploadedCount = result.assets.length;
     const dupCount = result.duplicates?.length || 0;
+    const rejectedCount = result.rejected?.length || 0;
     const nearDupNames = result.assets.filter((a) => a.similar?.length).map((a) => a.original_name);
 
     if (uploadedCount) toast(`${uploadedCount} fil(er) uploadet`, 'success');
     if (dupCount) {
       const names = result.duplicates.map((d) => d.name).join(', ');
       toast(`${dupCount} fil(er) sprunget over - findes allerede: ${names}`, 'error');
+    }
+    if (rejectedCount) {
+      const names = result.rejected.map((r) => `${r.name} (${r.reason})`).join(', ');
+      toast(`${rejectedCount} fil(er) afvist: ${names}`, 'error');
     }
     if (nearDupNames.length) {
       toast(`Bemærk: ${nearDupNames.join(', ')} ligner eksisterende billeder - tjek "Ligner også" i detaljevisningen`, 'default');
@@ -726,7 +731,80 @@ function showImportResult(result) {
   loadTagFilters();
 }
 
-// ---------- Tilføj asset(s) til en collection ----------
+// ---------- Offentligt delelink ----------
+async function openShareModal(assetId) {
+  openModal(`
+    <div class="modal-header"><h3>${icon('link-external')} Del offentligt</h3><button class="modal-close">${icon('close')}</button></div>
+    <div class="modal-body">
+      <p class="section-sub">
+        Alle med linket kan se/downloade filen UDEN at logge ind. Del kun med dem der skal have adgang.
+      </p>
+      <div class="field">
+        <label>Udløber</label>
+        <select id="share-expiry" class="select-inline" style="width:100%;">
+          <option value="7d">Om 7 dage</option>
+          <option value="1d">Om 1 dag</option>
+          <option value="30d">Om 30 dage</option>
+          <option value="never">Udløber aldrig</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-block" id="create-share-btn">${icon('plus', 'icon icon-sm')} Opret nyt link</button>
+      <div id="share-links-body" style="margin-top:16px;"><div class="section-sub">Indlæser eksisterende links…</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Luk</button>
+    </div>
+  `);
+
+  async function loadShareLinks() {
+    const body = document.getElementById('share-links-body');
+    const { links } = await api.assets.listShares(assetId);
+    if (!links.length) {
+      body.innerHTML = `<p class="section-sub" style="margin:0;">Ingen aktive delelinks endnu.</p>`;
+      return;
+    }
+    body.innerHTML = links.map((l) => `
+      <div class="version-row">
+        <span class="mono" style="font-size:10.5px;">
+          ${l.expires_at ? `Udløber ${formatDate(l.expires_at)}` : 'Udløber aldrig'}
+        </span>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-ghost btn-sm" data-copy-share="${window.location.origin}/api/share/${l.token}">${icon('copy', 'icon icon-sm')} Kopiér</button>
+          <button class="btn btn-danger btn-sm" data-revoke-share="${l.id}">${icon('trash', 'icon icon-sm')}</button>
+        </div>
+      </div>
+    `).join('');
+
+    body.querySelectorAll('[data-copy-share]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const success = await copyToClipboard(btn.dataset.copyShare);
+        toast(success ? 'Link kopieret' : 'Kunne ikke kopiere', success ? 'success' : 'error');
+      });
+    });
+    body.querySelectorAll('[data-revoke-share]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Tilbagekald dette link? Det holder op med at virke med det samme.')) return;
+        try {
+          await api.assets.revokeShare(assetId, btn.dataset.revokeShare);
+          toast('Link tilbagekaldt', 'success');
+          loadShareLinks();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+    });
+  }
+
+  document.getElementById('create-share-btn').addEventListener('click', async () => {
+    const expiresIn = document.getElementById('share-expiry').value;
+    try {
+      const result = await api.assets.createShare(assetId, expiresIn);
+      await copyToClipboard(result.url);
+      toast('Link oprettet og kopieret', 'success');
+      loadShareLinks();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+
+  loadShareLinks();
+}
 async function openAddToCollectionModal(assetIds) {
   openModal(`
     <div class="modal-header"><h3>${icon('collections')} Tilføj til collection</h3><button class="modal-close">${icon('close')}</button></div>
@@ -880,6 +958,7 @@ async function openAssetDetail(id, contextList) {
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" id="copy-url-btn">${icon('copy')} Kopiér URL</button>
+      <button class="btn btn-ghost" id="share-btn">${icon('link-external')} Del offentligt</button>
       <button class="btn btn-ghost" id="add-to-collection-btn">${icon('collections')} Tilføj til collection</button>
       <a class="btn btn-ghost" href="/api/assets/${asset.id}/download">${icon('download')} Download</a>
       ${canEdit ? `<button class="btn btn-primary" id="save-meta-btn">${icon('check')} Gem ændringer</button>` : ''}
@@ -923,6 +1002,7 @@ async function openAssetDetail(id, contextList) {
   });
 
   document.getElementById('add-to-collection-btn').addEventListener('click', () => openAddToCollectionModal([asset.id]));
+  document.getElementById('share-btn').addEventListener('click', () => openShareModal(asset.id));
 
   // Versionshistorik indlæses separat (ikke nødvendigt for de fleste assets,
   // så vi undgår at gøre selve detalje-visningen langsommere).
@@ -978,7 +1058,7 @@ async function openAssetDetail(id, contextList) {
   });
 
   document.getElementById('delete-asset-btn')?.addEventListener('click', async () => {
-    if (!confirm(`Slet "${asset.original_name}"? Dette kan ikke fortrydes.`)) return;
+    if (!confirm(`Flyt "${asset.original_name}" til papirkurven?`)) return;
     try {
       await api.assets.remove(asset.id);
       toast('Asset slettet', 'success');
