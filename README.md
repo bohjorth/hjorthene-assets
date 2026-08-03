@@ -257,6 +257,29 @@ afhængighed). Password kan nulstilles og brugeren slettes fra samme panel.
   aldrig). Kan tilbagekaldes når som helst. Beskyttelsen ligger i en lang, tilfældig
   token - ikke i login.
 
+## Grafana/Prometheus-metrics
+
+`GET /metrics` eksponerer nøgletal i Prometheus text-format (antal assets, lagerforbrug,
+diskplads, brugere, aktive delelinks, assets pr. kategori) - ingen ny afhængighed,
+formatet er simpelt nok til at bygge i hånden. **Begrænset til internt netværk** via
+nginx (se `location /metrics` i nginx-configen) - justér IP-rækkerne der hvis jeres
+netværk ser anderledes ud. Tilføj som et scrape-target i jeres eksisterende Prometheus,
+og byg Grafana-paneler oven på de eksponerede `hjorthene_*`-metrics.
+
+## CSV-eksport og vedligehold
+
+- **Administration → Eksportér CSV:** hele asset-oversigten (filnavn, kategori, mappe,
+  tags, uploader, dato) til rapportering/audit.
+- **Administration → Gensanér alle SVG'er:** engangs-oprydning der kører alle
+  allerede-uploadede SVG'er igennem den nyeste sikkerheds-rensning (relevant for filer
+  uploadet før SVG-sanitization blev indført).
+
+## Tastatur-genveje
+
+- **`/`** fokuserer det globale søgefelt (medmindre man allerede skriver i et felt)
+- **`Escape`** lukker en åben modal, uanset hvilken
+- **Piletaster** (venstre/højre) blader gennem billeder i lightbox-visningen
+
 ## Roller
 
 | Rolle | Rettigheder |

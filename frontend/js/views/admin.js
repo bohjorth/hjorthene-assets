@@ -37,6 +37,16 @@ async function renderAdmin(root) {
 
     <div class="panel">
       <div class="row-between">
+        <h3 class="section-title" style="font-size:13px;margin:0;">Eksport</h3>
+        <a class="btn btn-ghost btn-sm" href="/api/assets/export/csv">${icon('download', 'icon icon-sm')} Eksportér CSV</a>
+      </div>
+      <p class="section-sub" style="margin:8px 0 0;">
+        Hele asset-oversigten (filnavn, kategori, mappe, tags, uploader, dato) som CSV til rapportering/audit.
+      </p>
+    </div>
+
+    <div class="panel">
+      <div class="row-between">
         <h3 class="section-title" style="font-size:13px;margin:0;">Backup</h3>
         <button class="btn btn-ghost btn-sm" id="backup-btn">${icon('download')} Tag database-backup nu</button>
       </div>
@@ -61,6 +71,17 @@ async function renderAdmin(root) {
 
     <div class="panel">
       <div class="row-between">
+        <h3 class="section-title" style="font-size:13px;margin:0;">SVG-sikkerhed</h3>
+        <button class="btn btn-ghost btn-sm" id="resanitize-btn">${icon('check', 'icon icon-sm')} Gensanér alle SVG'er</button>
+      </div>
+      <p class="section-sub" style="margin:8px 0 0;">
+        Engangs-oprydning: kører alle allerede-uploadede SVG'er igennem den nyeste sikkerheds-rensning
+        (fjerner evt. script/event-handlers fra filer uploadet før den funktion fandtes).
+      </p>
+    </div>
+
+    <div class="panel">
+      <div class="row-between">
         <h3 class="section-title" style="font-size:13px;margin:0;">Lokale test-brugere</h3>
         <button class="btn btn-ghost btn-sm" id="new-local-user-btn">${icon('plus', 'icon icon-sm')} Opret</button>
       </div>
@@ -68,6 +89,12 @@ async function renderAdmin(root) {
         Logger ind uden om Authentik - til test eller nødadgang. Findes under "Log ind med lokal test-bruger" på login-siden.
       </p>
       <div id="local-users-body"><div class="section-sub">Indlæser…</div></div>
+    </div>
+
+    <div class="panel">
+      <h3 class="section-title" style="font-size:13px;margin:0 0 4px;">Aktive delelinks</h3>
+      <p class="section-sub" style="margin:0 0 12px;">Samlet oversigt over alle offentlige delelinks på tværs af assets.</p>
+      <div id="share-links-admin-body"><div class="section-sub">Indlæser…</div></div>
     </div>
 
     <div class="panel">
@@ -110,8 +137,24 @@ async function renderAdmin(root) {
     }
   });
 
+  document.getElementById('resanitize-btn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Gensanerer…';
+    try {
+      const result = await api.admin.resanitizeSvgs();
+      toast(`${result.changed} af ${result.total} SVG'er blev renset${result.failed ? `, ${result.failed} fejlede` : ''}`, 'success');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${icon('check', 'icon icon-sm')} Gensanér alle SVG'er`;
+    }
+  });
+
   loadLocalUsers();
   document.getElementById('new-local-user-btn').addEventListener('click', openNewLocalUserModal);
+  loadShareLinksAdmin();
 }
 
 async function loadLocalUsers() {
@@ -161,6 +204,61 @@ async function loadLocalUsers() {
         await api.localUsers.update(btn.dataset.resetId, { password: newPassword });
         toast('Password nulstillet', 'success');
       } catch (e) { toast(e.message, 'error'); }
+    });
+  });
+}
+
+async function loadShareLinksAdmin() {
+  const body = document.getElementById('share-links-admin-body');
+  if (!body) return;
+  const { links } = await api.admin.shareLinks();
+  if (!links.length) {
+    body.innerHTML = `<p class="section-sub" style="margin:0;">Ingen aktive delelinks lige nu.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <table class="asset-table">
+      <thead><tr><th>Asset</th><th>Oprettet af</th><th>Oprettet</th><th>Udløber</th><th></th></tr></thead>
+      <tbody>
+        ${links.map((l) => `
+          <tr data-open-asset="${l.asset_id}">
+            <td class="name-cell">${escapeHtml(l.asset_name)}</td>
+            <td>${escapeHtml(l.created_by_name || '—')}</td>
+            <td class="mono">${formatDate(l.created_at)}</td>
+            <td class="mono">${l.expires_at ? formatDate(l.expires_at) : 'Aldrig'}</td>
+            <td>
+              <button class="icon-btn-copy" data-copy-link="${window.location.origin}/api/share/${l.token}" title="Kopiér link">${icon('copy', 'icon icon-sm')}</button>
+              <button class="icon-btn-copy" data-revoke-link="${l.id}" title="Tilbagekald">${icon('trash', 'icon icon-sm')}</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  body.querySelectorAll('[data-open-asset]').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      navigateTo('assets');
+      setTimeout(() => openAssetDetail(parseInt(row.dataset.openAsset, 10)), 300);
+    });
+  });
+  body.querySelectorAll('[data-copy-link]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const success = await copyToClipboard(btn.dataset.copyLink);
+      toast(success ? 'Link kopieret' : 'Kunne ikke kopiere', success ? 'success' : 'error');
+    });
+  });
+  body.querySelectorAll('[data-revoke-link]').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('Tilbagekald dette link? Det holder op med at virke med det samme.')) return;
+      try {
+        await api.admin.revokeShareLink(btn.dataset.revokeLink);
+        toast('Link tilbagekaldt', 'success');
+        loadShareLinksAdmin();
+      } catch (err) { toast(err.message, 'error'); }
     });
   });
 }

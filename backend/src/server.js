@@ -69,6 +69,7 @@ app.use('/api/logs', require('./routes/logs'));
 app.use('/api/import/selfhosted', require('./routes/importSelfhosted'));
 app.use('/api/admin/local-users', require('./routes/localUsers'));
 app.use('/api/share', require('./routes/share'));
+app.use('/metrics', require('./routes/metrics'));
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 

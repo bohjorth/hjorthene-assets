@@ -110,3 +110,16 @@ function labelFor(view) {
 }
 
 boot();
+
+// Global "/"-genvej til at fokusere søgefeltet, medmindre man allerede skriver
+// et sted (input/textarea) - almindeligt mønster fra GitHub, Slack m.fl.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  const search = document.getElementById('global-search');
+  if (search) {
+    e.preventDefault();
+    search.focus();
+  }
+});

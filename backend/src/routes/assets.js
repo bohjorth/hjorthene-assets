@@ -434,6 +434,44 @@ router.get('/trash', requireAuth, (req, res) => {
   res.json({ assets: assets.map((a) => assetWithTags(a.id)) });
 });
 
+// --- CSV-eksport af hele asset-oversigten (rapportering/audit) ---
+router.get('/export/csv', requireAuth, (req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT a.id, a.original_name, a.category, a.mime, a.size, a.created_at,
+              f.name as folder_name, u.name as uploader_name,
+              (SELECT GROUP_CONCAT(t.name, '; ') FROM tags t JOIN asset_tags at ON at.tag_id = t.id WHERE at.asset_id = a.id) as tags
+       FROM assets a
+       LEFT JOIN folders f ON f.id = a.folder_id
+       LEFT JOIN users u ON u.id = a.uploader_id
+       WHERE a.deleted_at IS NULL
+       ORDER BY a.created_at DESC`
+    )
+    .all();
+
+  const escapeCsv = (val) => {
+    if (val === null || val === undefined) return '';
+    const str = String(val);
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  };
+
+  const header = ['ID', 'Filnavn', 'Kategori', 'MIME-type', 'Størrelse (bytes)', 'Mappe', 'Tags', 'Uploadet af', 'Upload dato'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push(
+      [r.id, r.original_name, r.category, r.mime, r.size, r.folder_name || '', r.tags || '', r.uploader_name || '', r.created_at]
+        .map(escapeCsv)
+        .join(',')
+    );
+  }
+
+  logEvent('csv_export', `${req.session.user.name} eksporterede asset-oversigten som CSV`, req.session.user.id);
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="hjorthene-assets-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send('\uFEFF' + lines.join('\r\n')); // BOM foran, saa Excel viser danske tegn korrekt
+});
+
 // --- Detail ---
 router.get('/:id', requireAuth, (req, res) => {
   const asset = assetWithTags(req.params.id);

@@ -46,6 +46,14 @@ function closeModal() {
   document.getElementById('modal-root').innerHTML = '';
 }
 
+// Global Escape-genvej der lukker en åben modal, uanset hvilken - tilføjes
+// KUN én gang ved indlæsning (ikke per modal-åbning), så den ikke hober sig op.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot && modalRoot.innerHTML.trim()) closeModal();
+});
+
 function icon(name, cls = 'icon') {
   return `<svg class="${cls}"><use href="img/icons.svg#${name}"></use></svg>`;
 }

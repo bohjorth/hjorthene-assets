@@ -89,6 +89,9 @@ const api = {
     status: () => apiFetch('/api/admin/status'),
     backup: () => apiFetch('/api/admin/backup', { method: 'POST' }),
     generateMissingThumbnails: () => apiFetch('/api/admin/generate-missing-thumbnails', { method: 'POST' }),
+    shareLinks: () => apiFetch('/api/admin/share-links'),
+    revokeShareLink: (id) => apiFetch(`/api/admin/share-links/${id}`, { method: 'DELETE' }),
+    resanitizeSvgs: () => apiFetch('/api/admin/resanitize-svgs', { method: 'POST' }),
   },
 
   logs: {

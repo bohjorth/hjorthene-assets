@@ -978,7 +978,6 @@ async function openAssetDetail(id, contextList) {
   const keyHandler = (e) => {
     if (e.key === 'ArrowLeft' && hasPrev) openAssetDetail(imageList[currentIndex - 1].id, contextList);
     else if (e.key === 'ArrowRight' && hasNext) openAssetDetail(imageList[currentIndex + 1].id, contextList);
-    else if (e.key === 'Escape') closeModal();
   };
   window._lightboxKeyHandler = keyHandler;
   document.addEventListener('keydown', keyHandler);

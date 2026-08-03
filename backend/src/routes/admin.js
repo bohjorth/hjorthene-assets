@@ -1,12 +1,14 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const db = require('../db');
 const config = require('../config');
 const { requireAuth, requireRole } = require('../middleware/roles');
 const { logEvent } = require('../utils/log');
 const { generateThumbnail, generateVideoThumbnail } = require('../utils/thumbnail');
 const { generateSvgThumbnail } = require('../utils/svgThumbnail');
+const { sanitizeSvgBuffer } = require('../utils/sanitizeSvg');
 
 const router = express.Router();
 
@@ -139,6 +141,43 @@ router.delete('/share-links/:id', requireAuth, requireRole('admin'), (req, res) 
   db.prepare('DELETE FROM share_links WHERE id = ?').run(link.id);
   logEvent('share_revoked', `${req.session.user.name} tilbagekaldte et delelink fra admin-oversigten`, req.session.user.id);
   res.json({ success: true });
+});
+
+// Genrenser alle allerede-uploadede SVG'er med den nyeste sanitize-html-logik.
+// Nyttig engangs-oprydning for filer der blev uploadet FØR SVG-rensning blev
+// indført. Opdaterer sha256 hvis indholdet reelt ændrede sig.
+router.post('/resanitize-svgs', requireAuth, requireRole('admin'), (req, res) => {
+  const assets = db.prepare("SELECT * FROM assets WHERE mime = 'image/svg+xml' AND deleted_at IS NULL").all();
+  let changed = 0;
+  let failed = 0;
+
+  for (const asset of assets) {
+    const filePath = path.join(config.uploadDir, asset.filename);
+    if (!fs.existsSync(filePath)) {
+      failed++;
+      continue;
+    }
+    try {
+      const original = fs.readFileSync(filePath);
+      const cleaned = sanitizeSvgBuffer(original);
+      if (!cleaned.equals(original)) {
+        fs.writeFileSync(filePath, cleaned);
+        const newHash = crypto.createHash('sha256').update(cleaned).digest('hex');
+        db.prepare('UPDATE assets SET sha256 = ? WHERE id = ?').run(newHash, asset.id);
+        changed++;
+      }
+    } catch (err) {
+      console.error(`Gensanering fejlede for asset #${asset.id}:`, err.message);
+      failed++;
+    }
+  }
+
+  logEvent(
+    'resanitize_svgs',
+    `${req.session.user.name} genrensede SVG'er: ${changed} ændret ud af ${assets.length} tjekket`,
+    req.session.user.id
+  );
+  res.json({ total: assets.length, changed, failed });
 });
 
 module.exports = router;
