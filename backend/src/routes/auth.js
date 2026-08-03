@@ -14,6 +14,7 @@ router.get('/login', async (req, res, next) => {
     const nonce = newNonce();
     req.session.oidcState = state;
     req.session.oidcNonce = nonce;
+    console.log(`[auth debug] /login - sessionID=${req.sessionID} state=${state}`);
     const url = client.authorizationUrl({
       scope: 'openid profile email groups',
       state,
@@ -50,6 +51,7 @@ function accessDeniedPage(name) {
 
 router.get('/callback', async (req, res, next) => {
   try {
+    console.log(`[auth debug] /callback - sessionID=${req.sessionID} session.oidcState=${req.session.oidcState} query.state=${req.query.state}`);
     const client = await getClient();
     const params = client.callbackParams(req);
     const tokenSet = await client.callback(config.authentik.redirectUri, params, {

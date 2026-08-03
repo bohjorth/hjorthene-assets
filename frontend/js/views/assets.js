@@ -829,13 +829,23 @@ async function openAssetDetail(id, contextList) {
   document.getElementById('lightbox-prev')?.addEventListener('click', () => openAssetDetail(imageList[currentIndex - 1].id, contextList));
   document.getElementById('lightbox-next')?.addEventListener('click', () => openAssetDetail(imageList[currentIndex + 1].id, contextList));
 
+  // Fjern en evt. tidligere lightbox-tastatur-lytter FØRST - ellers hober de
+  // sig op for hver gang man navigerer (næste/forrige), og et enkelt
+  // piletast-tryk ville trigge alle de gamle lyttere på én gang.
+  if (window._lightboxKeyHandler) {
+    document.removeEventListener('keydown', window._lightboxKeyHandler);
+  }
   const keyHandler = (e) => {
     if (e.key === 'ArrowLeft' && hasPrev) openAssetDetail(imageList[currentIndex - 1].id, contextList);
     else if (e.key === 'ArrowRight' && hasNext) openAssetDetail(imageList[currentIndex + 1].id, contextList);
     else if (e.key === 'Escape') closeModal();
   };
+  window._lightboxKeyHandler = keyHandler;
   document.addEventListener('keydown', keyHandler);
-  const cleanupKeyHandler = () => document.removeEventListener('keydown', keyHandler);
+  const cleanupKeyHandler = () => {
+    document.removeEventListener('keydown', keyHandler);
+    if (window._lightboxKeyHandler === keyHandler) window._lightboxKeyHandler = null;
+  };
   document.querySelectorAll('.modal-close').forEach((btn) => btn.addEventListener('click', cleanupKeyHandler, { once: true }));
   document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
     if (e.target.id === 'modal-overlay') cleanupKeyHandler();

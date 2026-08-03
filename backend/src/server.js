@@ -15,6 +15,15 @@ app.set('trust proxy', 1); // vi kører bag nginx
 
 app.use(cors({ origin: config.baseUrl, credentials: true }));
 app.use(express.json());
+
+// /api og /auth er dynamiske, per-bruger endpoints og må ALDRIG caches (hverken
+// af browseren eller af en CDN som Cloudflare foran) - ellers kan én besøgendes
+// session/OAuth-state lækkes til en anden. Sat eksplicit som ekstra sikkerhed,
+// uanset hvordan Cloudflare selv er konfigureret.
+app.use(['/api', '/auth'], (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  next();
+});
 app.use(
   session({
     store: new SqliteSessionStore({ dir: config.dataDir }),
