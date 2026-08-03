@@ -30,6 +30,7 @@ module.exports = {
     redirectUri: req('AUTHENTIK_REDIRECT_URI', 'http://localhost:4000/auth/callback'),
     logoutRedirect: req('AUTHENTIK_LOGOUT_REDIRECT', 'http://localhost:4000/'),
     roleGroupAdmin: req('ROLE_GROUP_ADMIN', 'Admins'),
-    roleGroupEditor: req('ROLE_GROUP_EDITOR', 'Editors'),
+    roleGroupEditor: req('ROLE_GROUP_EDITOR', ''),
+    roleGroupViewer: req('ROLE_GROUP_VIEWER', ''),
   },
 };

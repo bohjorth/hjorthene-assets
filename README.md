@@ -26,17 +26,30 @@ hjorthene-assets/
 
 ## 1. Authentik-opsætning
 
+**Adgangsmodel:** kun brugere der er medlem af mindst én af de konfigurerede grupper kan
+logge ind overhovedet - der er INGEN automatisk "gratis" Viewer-adgang til alle
+Authentik-brugere. Se `ROLE_GROUP_*` i `.env.example`.
+
 I Authentik, opret en **OAuth2/OpenID Provider** + **Application**:
 
-1. Providers → Create → OAuth2/OpenID Provider
+1. **Providers → Create → OAuth2/OpenID Provider**
    - Client type: `Confidential`
    - Redirect URI: `https://assets.hjorthene.dk/auth/callback`
-   - Scopes: `openid`, `email`, `profile`, og `groups` (tilføj evt. custom scope-mapping så `groups` claim inkluderes i ID-token)
-2. Applications → Create → knyt til provideren ovenfor, slug fx `hjorthene-assets`
-3. Noter **Client ID**, **Client Secret** og **Issuer URL** (typisk
-   `https://authentik.hjorthene.dk/application/o/hjorthene-assets/`)
-4. Opret to grupper i Authentik, fx `Hjorthene Assets Admins` og `Hjorthene Assets Editors`.
-   Alle andre logged-in brugere får automatisk rollen `viewer`.
+   - Scopes: sørg for at `openid`, `email`, `profile` er valgt
+2. **Vigtigt - groups-claim:** Authentik inkluderer ikke gruppemedlemskaber i ID-tokenet
+   som standard. Gå til **Customization → Property Mappings**, opret en ny
+   **Scope Mapping** (eller brug den indbyggede "authentik default OAuth Mapping: OpenID 'openid'"
+   hvis den allerede indeholder `groups`), med:
+   - Scope name: `groups`
+   - Expression: `return {"groups": [group.name for group in request.user.ak_groups.all()]}`
+
+   Tilføj derefter denne scope til provideren under **Advanced protocol settings**, og
+   tilføj `groups` til scope-listen i login-URL'en (allerede sat i koden - `scope: 'openid profile email groups'`).
+3. **Applications → Create** → knyt til provideren ovenfor, slug fx `hjorthene-assets`
+4. Noter **Client ID**, **Client Secret** og **Issuer URL** (typisk
+   `https://authentik.<jeres-domæne>/application/o/hjorthene-assets/`)
+5. Sørg for at gruppen(erne) I vil bruge findes i Authentik (fx synkroniseret fra AD/LDAP),
+   og at de relevante brugere er medlem af dem.
 
 ## 2. Backend-opsætning
 
@@ -191,6 +204,31 @@ sudo systemctl start hjorthene-assets-backup.service
 sudo journalctl -u hjorthene-assets-backup.service -n 20 --no-pager
 ```
 
+## Træk-og-slip mellem mapper, versionering og nær-duplikater
+
+- **Træk-og-slip:** asset-kort/-rækker kan trækkes direkte over på en mappe i træet for at
+  flytte dem (virker på hele den aktuelle markering, hvis noget er valgt).
+- **"Analyserer…"-status:** vises på assets mens OCR/AI-tagging kører i baggrunden efter
+  upload, og forsvinder automatisk (let polling hvert 4. sekund, kun mens noget rent
+  faktisk er i gang).
+- **Video-thumbnails:** der trækkes nu et frame ud af video-filer til grid-visningen,
+  ligesom billeder. **Kræver ffmpeg installeret på serveren:**
+  ```bash
+  sudo apt-get install -y ffmpeg
+  ```
+  Mangler ffmpeg, springes video-thumbnailen bare over (falder tilbage til ikon) -
+  resten af appen fungerer upåvirket.
+- **Nær-duplikat-detektion:** supplerer den eksakte SHA256-dublet-tjek med en visuel
+  "ligner"-sammenligning (perceptual hash / dHash, beregnet med `sharp` - ingen ny
+  afhængighed). Vises som en advarsel ved upload og som en "Ligner også"-sektion i
+  detaljevisningen.
+- **Billed-lightbox:** åbn et billede fra en filtreret liste, og brug piletaster
+  (venstre/højre) eller pil-knapperne til at bladre gennem de øvrige billeder i samme
+  liste uden at lukke detaljevisningen.
+- **Versionering:** Editor+ kan uploade en ny version af et eksisterende asset (samme
+  asset-ID og URL bevares) via "Upload ny version" i detaljevisningen. Tidligere
+  versioner listes med dato/størrelse/uploader og kan downloades separat.
+
 ## Roller
 
 | Rolle | Rettigheder |
@@ -200,13 +238,16 @@ sudo journalctl -u hjorthene-assets-backup.service -n 20 --no-pager
 | **Admin** | + Indstillinger, Administration (db-status, backup, log) |
 
 Rollen sættes automatisk ud fra Authentik-gruppen ved login (se `.env`:
-`ROLE_GROUP_ADMIN` / `ROLE_GROUP_EDITOR`).
+`ROLE_GROUP_ADMIN` / `ROLE_GROUP_EDITOR` / `ROLE_GROUP_VIEWER`). Adgangen er streng:
+er man ikke medlem af mindst én af disse grupper, bliver man afvist ved login -
+der gives ikke automatisk Viewer-adgang til alle Authentik-brugere.
 
-## Ikke inkluderet i v1.0 (jf. spec'en)
+## Status ift. oprindelig v1.1/v2-roadmap
 
-Lagt til v1.1/v2 i roadmappet: ZIP-download af flere filer, OCR, AI-tagging,
-automatisk thumbnail-generator, versionering, REST-API til 3. part, webhooks,
-EXIF, ansigtsgenkendelse, duplicate finder, AI-søgning, watermarking, video-transcoding.
+De fleste v1.1-punkter er nu implementeret: ZIP-download, OCR, AI-tagging, thumbnails
+(billeder + video), EXIF, duplicate finder (eksakt + nær-duplikat), versionering.
+Stadig ikke bygget: REST-API/webhooks til 3. part, ansigtsgenkendelse, AI-søgning,
+watermarking, video-transcoding.
 
 ## Næste skridt herfra
 

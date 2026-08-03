@@ -34,6 +34,8 @@ const api = {
     bulkTag: (ids, tags) => apiFetch('/api/assets/bulk/tag', { method: 'POST', body: JSON.stringify({ ids, tags }) }),
     bulkDelete: (ids) => apiFetch('/api/assets/bulk/delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     zipUrl: (ids) => `/api/assets/zip?ids=${ids.join(',')}`,
+    versions: (id) => apiFetch(`/api/assets/${id}/versions`),
+    uploadVersion: (id, formData, onProgress) => uploadWithProgress(`/api/assets/${id}/versions`, formData, onProgress),
   },
 
   folders: {

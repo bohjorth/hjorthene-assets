@@ -10,10 +10,13 @@ const upload = require('../middleware/upload');
 const { requireAuth, requireRole } = require('../middleware/roles');
 const { categorize } = require('../utils/categorize');
 const { logEvent } = require('../utils/log');
-const { generateThumbnail } = require('../utils/thumbnail');
+const { generateThumbnail, generateVideoThumbnail } = require('../utils/thumbnail');
 const { extractExif } = require('../utils/exif');
 const { extractPdfText, extractImageText } = require('../utils/textExtract');
 const { suggestTags } = require('../utils/aiTagging');
+const { computePHash, hammingDistanceHex } = require('../utils/phash');
+
+const PHASH_SIMILARITY_THRESHOLD = 8; // ud af 64 bits - lavere = strengere match
 
 const router = express.Router();
 
@@ -45,27 +48,25 @@ function assetWithTags(assetId) {
 }
 
 /**
- * Kører tekst-udtræk (PDF-tekst eller billed-OCR) i baggrunden EFTER svaret
- * er sendt til klienten, så store filer ikke gør uploadet langsomt. Opdaterer
- * asset-rækken med resultatet når den er klar. Fejler stille (logges kun) -
- * manglende tekst-udtræk må aldrig ødelægge selve uploadet.
+ * Udtrækker søgbar tekst (PDF direkte, eller billed-OCR). Returnerer en
+ * promise (i modsætning til tidligere) så den kan indgå i Promise.allSettled
+ * sammen med AI-tagging, hvilket lader os vide præcis hvornår ALT
+ * baggrundsarbejde for et asset er færdigt (bruges til processing-flaget).
  */
-function extractTextInBackground(assetId, filePath, mimeType) {
-  (async () => {
-    try {
-      let text = null;
-      if (mimeType === 'application/pdf') {
-        text = await extractPdfText(filePath);
-      } else if (mimeType.startsWith('image/')) {
-        text = await extractImageText(filePath);
-      }
-      if (text && text.trim()) {
-        db.prepare('UPDATE assets SET ocr_text = ? WHERE id = ?').run(text.trim().slice(0, 20000), assetId);
-      }
-    } catch (err) {
-      console.error(`Tekst-udtræk fejlede for asset #${assetId}:`, err.message);
+async function extractTextTask(assetId, filePath, mimeType) {
+  try {
+    let text = null;
+    if (mimeType === 'application/pdf') {
+      text = await extractPdfText(filePath);
+    } else if (mimeType.startsWith('image/')) {
+      text = await extractImageText(filePath);
     }
-  })();
+    if (text && text.trim()) {
+      db.prepare('UPDATE assets SET ocr_text = ? WHERE id = ?').run(text.trim().slice(0, 20000), assetId);
+    }
+  } catch (err) {
+    console.error(`Tekst-udtræk fejlede for asset #${assetId}:`, err.message);
+  }
 }
 
 function getOrCreateTagRow(name) {
@@ -75,29 +76,57 @@ function getOrCreateTagRow(name) {
 
 /**
  * Foreslår og tilføjer tags automatisk via en selvhostet CLIP-model, HVIS
- * indstillingen ai_tagging_enabled er slået til. Kører i baggrunden ligesom
- * tekst-udtræk - blokerer aldrig selve uploadet, og fejler stille.
+ * indstillingen ai_tagging_enabled er slået til. Returnerer en promise, se
+ * extractTextTask ovenfor for hvorfor.
  */
-function aiTagInBackground(assetId, filePath) {
-  (async () => {
-    try {
-      const setting = db.prepare("SELECT value FROM settings WHERE key = 'ai_tagging_enabled'").get();
-      if (!setting || setting.value !== 'true') return;
+async function aiTagTask(assetId, filePath) {
+  try {
+    const setting = db.prepare("SELECT value FROM settings WHERE key = 'ai_tagging_enabled'").get();
+    if (!setting || setting.value !== 'true') return;
 
-      const suggested = await suggestTags(filePath);
-      if (!suggested.length) return;
+    const suggested = await suggestTags(filePath);
+    if (!suggested.length) return;
 
-      const aiMarkerTag = getOrCreateTagRow('ai-foreslået');
-      db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, aiMarkerTag.id);
-      for (const label of suggested) {
-        const tagRow = getOrCreateTagRow(label);
-        db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, tagRow.id);
-      }
-      logEvent('ai_tag', `AI foreslog tags for asset #${assetId}: ${suggested.join(', ')}`, null);
-    } catch (err) {
-      console.error(`AI-tagging fejlede for asset #${assetId}:`, err.message);
+    const aiMarkerTag = getOrCreateTagRow('ai-foreslået');
+    db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, aiMarkerTag.id);
+    for (const label of suggested) {
+      const tagRow = getOrCreateTagRow(label);
+      db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(assetId, tagRow.id);
     }
-  })();
+    logEvent('ai_tag', `AI foreslog tags for asset #${assetId}: ${suggested.join(', ')}`, null);
+  } catch (err) {
+    console.error(`AI-tagging fejlede for asset #${assetId}:`, err.message);
+  }
+}
+
+/**
+ * Kører alt relevant baggrundsarbejde for et nyupload et asset (tekst-udtræk
+ * og/eller AI-tagging), og sætter processing=1/0 omkring det, så frontenden
+ * kan vise en "Analyserer…"-indikator mens det står på. Blokerer aldrig
+ * selve upload-svaret - kaldes uden await fra upload-routen.
+ */
+function runBackgroundProcessing(assetId, filePath, mimeType) {
+  const isImage = mimeType.startsWith('image/');
+  const isPdf = mimeType === 'application/pdf';
+  const tasks = [];
+  if (isImage || isPdf) tasks.push(extractTextTask(assetId, filePath, mimeType));
+  if (isImage) tasks.push(aiTagTask(assetId, filePath));
+  if (!tasks.length) return;
+
+  db.prepare('UPDATE assets SET processing = 1 WHERE id = ?').run(assetId);
+  Promise.allSettled(tasks).finally(() => {
+    db.prepare('UPDATE assets SET processing = 0 WHERE id = ?').run(assetId);
+  });
+}
+
+/** Finder eksisterende assets hvis phash ligner det angivne (nær-duplikater). */
+function findSimilarAssets(phash, excludeAssetId) {
+  if (!phash) return [];
+  const candidates = db.prepare('SELECT id, original_name, phash FROM assets WHERE phash IS NOT NULL AND id != ?').all(excludeAssetId || -1);
+  return candidates
+    .map((c) => ({ id: c.id, name: c.original_name, distance: hammingDistanceHex(phash, c.phash) }))
+    .filter((c) => c.distance <= PHASH_SIMILARITY_THRESHOLD)
+    .sort((a, b) => a.distance - b.distance);
 }
 
 // --- Upload (Editor+) ---
@@ -122,6 +151,7 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
       const mimeType = file.mimetype || mime.lookup(file.originalname) || 'application/octet-stream';
       const category = categorize(mimeType, file.originalname);
       const isImage = mimeType.startsWith('image/');
+      const isVideo = mimeType.startsWith('video/');
 
       let hasThumbnail = 0;
       if (isImage) {
@@ -131,18 +161,29 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
         } catch (err) {
           console.error(`Thumbnail-generering fejlede for ${file.originalname}:`, err.message);
         }
+      } else if (isVideo) {
+        try {
+          await generateVideoThumbnail(filePath, path.join(config.uploadDir, `${file.filename}.thumb.jpg`));
+          hasThumbnail = 1;
+        } catch (err) {
+          console.error(`Video-thumbnail fejlede for ${file.originalname} (mangler ffmpeg?):`, err.message);
+        }
       }
 
       let exifJson = null;
+      let phash = null;
+      let similar = [];
       if (isImage) {
         const exifData = await extractExif(filePath);
         if (exifData) exifJson = JSON.stringify(exifData);
+        phash = await computePHash(filePath);
+        if (phash) similar = findSimilarAssets(phash, null);
       }
 
       const info = db
         .prepare(
-          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id, has_thumbnail, exif_json)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id, has_thumbnail, exif_json, phash)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           file.filename,
@@ -154,16 +195,18 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
           folderId,
           req.session.user.id,
           hasThumbnail,
-          exifJson
+          exifJson,
+          phash
         );
 
       const assetId = info.lastInsertRowid;
-      results.push(assetWithTags(assetId));
+      const assetResult = assetWithTags(assetId);
+      assetResult.similar = similar;
+      results.push(assetResult);
       logEvent('upload', `${req.session.user.name} uploadede ${file.originalname}`, req.session.user.id);
 
-      // PDF-tekst/OCR kører i baggrunden - blokerer ikke svaret.
-      extractTextInBackground(assetId, filePath, mimeType);
-      if (isImage) aiTagInBackground(assetId, filePath);
+      // Tekst-udtræk/AI-tagging kører i baggrunden - blokerer ikke svaret.
+      runBackgroundProcessing(assetId, filePath, mimeType);
     }
 
     res.json({ assets: results, duplicates });
@@ -337,6 +380,7 @@ router.post('/bulk/delete', requireAuth, requireRole('editor'), (req, res) => {
 router.get('/:id', requireAuth, (req, res) => {
   const asset = assetWithTags(req.params.id);
   if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+  asset.similar = asset.phash ? findSimilarAssets(asset.phash, asset.id) : [];
   res.json({ asset });
 });
 
@@ -380,6 +424,92 @@ router.delete('/:id', requireAuth, requireRole('editor'), (req, res) => {
   db.prepare('DELETE FROM assets WHERE id = ?').run(asset.id);
   logEvent('delete', `${req.session.user.name} slettede ${asset.original_name}`, req.session.user.id);
   res.json({ success: true });
+});
+
+// --- Versionshistorik ---
+router.get('/:id/versions', requireAuth, (req, res) => {
+  const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+  if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+  const versions = db
+    .prepare(
+      `SELECT v.id, v.version_number, v.original_name, v.size, v.mime, v.created_at, u.name as uploader_name
+       FROM asset_versions v LEFT JOIN users u ON u.id = v.uploader_id
+       WHERE v.asset_id = ? ORDER BY v.version_number DESC`
+    )
+    .all(asset.id);
+  res.json({ versions });
+});
+
+// --- Upload ny version af et eksisterende asset (Editor+) ---
+// Den nuværende fil arkiveres som en version, og selve asset-rækken
+// opdateres med den nye fil - id'et (og dermed URL'en) forbliver det samme.
+router.post('/:id/versions', requireAuth, requireRole('editor'), upload.single('file'), async (req, res, next) => {
+  try {
+    const asset = db.prepare('SELECT * FROM assets WHERE id = ?').get(req.params.id);
+    if (!asset) return res.status(404).json({ error: 'Asset ikke fundet' });
+    if (!req.file) return res.status(400).json({ error: 'Ingen fil modtaget' });
+
+    // Arkivér den nuværende fil som en version, FØR den overskrives
+    const nextVersion = (db.prepare('SELECT MAX(version_number) as m FROM asset_versions WHERE asset_id = ?').get(asset.id).m || 0) + 1;
+    db.prepare(
+      `INSERT INTO asset_versions (asset_id, version_number, filename, original_name, size, mime, sha256, uploader_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(asset.id, nextVersion, asset.filename, asset.original_name, asset.size, asset.mime, asset.sha256, asset.uploader_id);
+    // Den fysiske gamle fil beholdes på disk (bruges af versions-download-ruten) -
+    // slettes IKKE her, kun ved sletning af hele asset'et.
+
+    const newFilePath = path.join(config.uploadDir, req.file.filename);
+    const sha256 = await sha256File(newFilePath);
+    const mimeType = req.file.mimetype || mime.lookup(req.file.originalname) || 'application/octet-stream';
+    const isImage = mimeType.startsWith('image/');
+    const isVideo = mimeType.startsWith('video/');
+
+    // Ryd op i den gamle thumbnail og lav en ny til den nye version
+    if (asset.has_thumbnail) {
+      fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
+    }
+    let hasThumbnail = 0;
+    if (isImage) {
+      try {
+        await generateThumbnail(newFilePath, path.join(config.uploadDir, `${req.file.filename}.thumb.jpg`));
+        hasThumbnail = 1;
+      } catch (err) { /* spring stille over */ }
+    } else if (isVideo) {
+      try {
+        await generateVideoThumbnail(newFilePath, path.join(config.uploadDir, `${req.file.filename}.thumb.jpg`));
+        hasThumbnail = 1;
+      } catch (err) { /* spring stille over */ }
+    }
+
+    let exifJson = null;
+    let phash = null;
+    if (isImage) {
+      const exifData = await extractExif(newFilePath);
+      if (exifData) exifJson = JSON.stringify(exifData);
+      phash = await computePHash(newFilePath);
+    }
+
+    db.prepare(
+      `UPDATE assets SET filename = ?, size = ?, mime = ?, sha256 = ?, has_thumbnail = ?, exif_json = ?,
+       phash = ?, ocr_text = NULL, updated_at = datetime('now') WHERE id = ?`
+    ).run(req.file.filename, req.file.size, mimeType, sha256, hasThumbnail, exifJson, phash, asset.id);
+
+    logEvent('new_version', `${req.session.user.name} uploadede en ny version (v${nextVersion + 1}) af ${asset.original_name}`, req.session.user.id);
+    runBackgroundProcessing(asset.id, newFilePath, mimeType);
+
+    res.json({ asset: assetWithTags(asset.id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Download en tidligere version ---
+router.get('/:id/versions/:versionId/download', requireAuth, (req, res) => {
+  const version = db.prepare('SELECT * FROM asset_versions WHERE id = ? AND asset_id = ?').get(req.params.versionId, req.params.id);
+  if (!version) return res.status(404).json({ error: 'Version ikke fundet' });
+  const filePath = path.join(config.uploadDir, version.filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Filen findes ikke længere på disk' });
+  res.download(filePath, version.original_name);
 });
 
 // --- Download ---

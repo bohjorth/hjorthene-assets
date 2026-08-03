@@ -117,6 +117,34 @@ async function loadFolderTree() {
       loadAssetResults();
       updateBreadcrumb();
     });
+
+    // Drop-target: træk asset-kort/rækker herhen for at flytte dem
+    item.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      item.classList.add('drag-over-target');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over-target'));
+    item.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      item.classList.remove('drag-over-target');
+      let ids;
+      try {
+        ids = JSON.parse(e.dataTransfer.getData('text/plain'));
+      } catch (err) {
+        return;
+      }
+      if (!Array.isArray(ids) || !ids.length) return;
+      const folderId = item.dataset.folderId ? parseInt(item.dataset.folderId, 10) : null;
+      try {
+        await api.assets.bulkMove(ids, folderId);
+        toast(`${ids.length} asset(s) flyttet`, 'success');
+        assetsState.selected.clear();
+        loadAssetResults();
+        loadFolderTree();
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    });
   });
   tree.querySelectorAll('[data-action="rename"]').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -202,6 +230,8 @@ async function loadAssetResults() {
     return;
   }
 
+  assetsState.lastResults = assets; // bruges til pil-frem/tilbage i detaljevisningen (lightbox)
+
   if (assetsState.view === 'grid') {
     container.innerHTML = `<div class="asset-grid">${assets.map(assetCardHtml).join('')}</div>`;
   } else {
@@ -214,9 +244,9 @@ async function loadAssetResults() {
         </tr></thead>
         <tbody>
           ${assets.map((a) => `
-            <tr data-id="${a.id}">
+            <tr data-id="${a.id}" draggable="true">
               <td><input type="checkbox" class="select-checkbox" data-select-id="${a.id}" ${assetsState.selected.has(a.id) ? 'checked' : ''} /></td>
-              <td class="name-cell">${fileIcon(a.category)} ${escapeHtml(a.original_name)}</td>
+              <td class="name-cell">${fileIcon(a.category)} ${escapeHtml(a.original_name)}${a.processing ? `<span class="processing-badge">${icon('more', 'icon icon-sm')} Analyserer…</span>` : ''}</td>
               <td><span class="filetype-chip cat-${a.category}">${extOf(a.original_name)}</span></td>
               <td class="mono">${formatBytes(a.size)}</td>
               <td>${a.category}</td>
@@ -254,8 +284,18 @@ async function loadAssetResults() {
 
   renderBulkToolbar();
 
+  // Træk-og-slip: gør markerede (eller enkeltstående) assets trækbare til mappetræet
   container.querySelectorAll('[data-id]').forEach((el) => {
-    el.addEventListener('click', () => openAssetDetail(parseInt(el.dataset.id, 10)));
+    el.addEventListener('dragstart', (e) => {
+      const id = parseInt(el.dataset.id, 10);
+      const ids = assetsState.selected.has(id) ? Array.from(assetsState.selected) : [id];
+      e.dataTransfer.setData('text/plain', JSON.stringify(ids));
+      e.dataTransfer.effectAllowed = 'move';
+    });
+  });
+
+  container.querySelectorAll('[data-id]').forEach((el) => {
+    el.addEventListener('click', () => openAssetDetail(parseInt(el.dataset.id, 10), assetsState.lastResults));
   });
 
   container.querySelectorAll('[data-copy-id]').forEach((btn) => {
@@ -266,6 +306,15 @@ async function loadAssetResults() {
       toast(success ? 'URL kopieret' : 'Kunne ikke kopiere URL', success ? 'success' : 'error');
     });
   });
+
+  // Let baggrunds-polling: hvis noget stadig "analyserer", tjek igen om lidt,
+  // så badgen forsvinder automatisk uden at brugeren skal genindlæse siden.
+  clearTimeout(assetsState._pollTimer);
+  if (assets.some((a) => a.processing)) {
+    assetsState._pollTimer = setTimeout(() => {
+      if (document.getElementById('asset-results')) loadAssetResults();
+    }, 4000);
+  }
 }
 
 function renderBulkToolbar() {
@@ -372,13 +421,15 @@ function renderBulkToolbar() {
 
 function assetCardHtml(a) {
   const isImage = a.mime.startsWith('image/');
+  const showThumb = a.has_thumbnail && (isImage || a.mime.startsWith('video/'));
   const isSelected = assetsState.selected.has(a.id);
   return `
-    <div class="asset-card ${isSelected ? 'selected' : ''}" data-id="${a.id}">
+    <div class="asset-card ${isSelected ? 'selected' : ''}" data-id="${a.id}" draggable="true">
       <label class="asset-card-checkbox" title="Vælg">
         <input type="checkbox" class="select-checkbox" data-select-id="${a.id}" ${isSelected ? 'checked' : ''} />
       </label>
-      <div class="asset-thumb">${isImage ? `<img src="/api/assets/${a.id}/thumbnail" loading="lazy" />` : fileIcon(a.category)}</div>
+      ${a.processing ? `<span class="processing-badge processing-badge-card">${icon('more', 'icon icon-sm')} Analyserer…</span>` : ''}
+      <div class="asset-thumb">${showThumb ? `<img src="/api/assets/${a.id}/thumbnail" loading="lazy" />` : fileIcon(a.category)}</div>
       <div class="asset-card-body">
         <div class="asset-card-name" title="${escapeHtml(a.original_name)}">${escapeHtml(a.original_name)}</div>
         <div class="asset-card-meta">
@@ -484,11 +535,15 @@ async function handleUploadFiles(fileList) {
     });
     const uploadedCount = result.assets.length;
     const dupCount = result.duplicates?.length || 0;
+    const nearDupNames = result.assets.filter((a) => a.similar?.length).map((a) => a.original_name);
 
     if (uploadedCount) toast(`${uploadedCount} fil(er) uploadet`, 'success');
     if (dupCount) {
       const names = result.duplicates.map((d) => d.name).join(', ');
       toast(`${dupCount} fil(er) sprunget over - findes allerede: ${names}`, 'error');
+    }
+    if (nearDupNames.length) {
+      toast(`Bemærk: ${nearDupNames.join(', ')} ligner eksisterende billeder - tjek "Ligner også" i detaljevisningen`, 'default');
     }
     loadAssetResults();
     loadFolderTree();
@@ -667,13 +722,19 @@ function showImportResult(result) {
 }
 
 // ---------- Asset detail modal ----------
-async function openAssetDetail(id) {
+async function openAssetDetail(id, contextList) {
   const { asset } = await api.assets.get(id);
   const canEdit = ['editor', 'admin'].includes(currentUser.role);
   const isImage = asset.mime.startsWith('image/');
   const isVideo = asset.mime.startsWith('video/');
   const isAudio = asset.mime.startsWith('audio/');
   const isPdf = asset.mime === 'application/pdf';
+
+  // Lightbox-navigation: find nabo-billeder i den aktuelt viste liste (kun billeder)
+  const imageList = (contextList || []).filter((a) => a.mime.startsWith('image/'));
+  const currentIndex = imageList.findIndex((a) => a.id === asset.id);
+  const hasPrev = isImage && currentIndex > 0;
+  const hasNext = isImage && currentIndex >= 0 && currentIndex < imageList.length - 1;
 
   let previewHtml = `<span>${fileIcon(asset.category)}</span>`;
   if (isImage) previewHtml = `<img src="/api/assets/${asset.id}/preview" />`;
@@ -700,11 +761,29 @@ async function openAssetDetail(id) {
     </details>
   ` : '';
 
+  const similarSection = asset.similar?.length ? `
+    <details class="ocr-details" open>
+      <summary>Ligner også (${asset.similar.length})</summary>
+      <div class="similar-grid">
+        ${asset.similar.map((s) => `
+          <div class="similar-item" data-similar-id="${s.id}">
+            <img src="/api/assets/${s.id}/thumbnail" loading="lazy" />
+            <div class="similar-label">${escapeHtml(s.name)}</div>
+          </div>
+        `).join('')}
+      </div>
+    </details>
+  ` : '';
+
   openModal(`
     <div class="modal-header"><h3>${escapeHtml(asset.original_name)}</h3><button class="modal-close">${icon('close')}</button></div>
     <div class="modal-body">
       <div class="detail-grid">
-        <div class="detail-preview">${previewHtml}</div>
+        <div class="detail-preview" style="position:relative;">
+          ${previewHtml}
+          ${hasPrev ? `<button class="lightbox-nav prev" id="lightbox-prev">${icon('chevron-right', 'icon')}</button>` : ''}
+          ${hasNext ? `<button class="lightbox-nav next" id="lightbox-next">${icon('chevron-right', 'icon')}</button>` : ''}
+        </div>
         <div>
           <div class="meta-table">
             <div class="meta-row"><span class="meta-key">Størrelse</span><span class="meta-val">${formatBytes(asset.size)}</span></div>
@@ -727,6 +806,17 @@ async function openAssetDetail(id) {
         </div>
       </div>
       ${ocrSection}
+      ${similarSection}
+      <details class="ocr-details" id="versions-details">
+        <summary>Versionshistorik</summary>
+        <div id="versions-body"><div class="section-sub">Indlæser…</div></div>
+        ${canEdit ? `
+          <div style="margin-top:10px;">
+            <input type="file" id="new-version-input" style="display:none;" />
+            <button class="btn btn-ghost btn-sm" id="upload-version-btn">${icon('upload', 'icon icon-sm')} Upload ny version</button>
+          </div>
+        ` : ''}
+      </details>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" id="copy-url-btn">${icon('copy')} Kopiér URL</button>
@@ -736,10 +826,70 @@ async function openAssetDetail(id) {
     </div>
   `, { wide: true });
 
+  document.getElementById('lightbox-prev')?.addEventListener('click', () => openAssetDetail(imageList[currentIndex - 1].id, contextList));
+  document.getElementById('lightbox-next')?.addEventListener('click', () => openAssetDetail(imageList[currentIndex + 1].id, contextList));
+
+  const keyHandler = (e) => {
+    if (e.key === 'ArrowLeft' && hasPrev) openAssetDetail(imageList[currentIndex - 1].id, contextList);
+    else if (e.key === 'ArrowRight' && hasNext) openAssetDetail(imageList[currentIndex + 1].id, contextList);
+    else if (e.key === 'Escape') closeModal();
+  };
+  document.addEventListener('keydown', keyHandler);
+  const cleanupKeyHandler = () => document.removeEventListener('keydown', keyHandler);
+  document.querySelectorAll('.modal-close').forEach((btn) => btn.addEventListener('click', cleanupKeyHandler, { once: true }));
+  document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'modal-overlay') cleanupKeyHandler();
+  }, { once: true });
+
+  document.querySelectorAll('[data-similar-id]').forEach((el) => {
+    el.addEventListener('click', () => openAssetDetail(parseInt(el.dataset.similarId, 10), contextList));
+  });
+
   document.getElementById('copy-url-btn').addEventListener('click', async () => {
     const url = `${window.location.origin}/api/assets/${asset.id}/preview`;
     const success = await copyToClipboard(url);
     toast(success ? 'URL kopieret' : 'Kunne ikke kopiere URL', success ? 'success' : 'error');
+  });
+
+  // Versionshistorik indlæses separat (ikke nødvendigt for de fleste assets,
+  // så vi undgår at gøre selve detalje-visningen langsommere).
+  api.assets.versions(asset.id).then(({ versions }) => {
+    const body = document.getElementById('versions-body');
+    if (!body) return;
+    if (!versions.length) {
+      body.innerHTML = `<p class="section-sub" style="margin:0;">Ingen tidligere versioner - dette er den eneste version.</p>`;
+      return;
+    }
+    body.innerHTML = versions.map((v) => `
+      <div class="version-row">
+        <span>v${v.version_number} · ${escapeHtml(v.original_name)} · ${formatBytes(v.size)} · ${formatDate(v.created_at)}${v.uploader_name ? ' · ' + escapeHtml(v.uploader_name) : ''}</span>
+        <a class="btn btn-ghost btn-sm" href="/api/assets/${asset.id}/versions/${v.id}/download">${icon('download', 'icon icon-sm')}</a>
+      </div>
+    `).join('');
+  }).catch(() => {});
+
+  document.getElementById('upload-version-btn')?.addEventListener('click', () => {
+    document.getElementById('new-version-input').click();
+  });
+  document.getElementById('new-version-input')?.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    const btn = document.getElementById('upload-version-btn');
+    btn.disabled = true;
+    btn.textContent = 'Uploader ny version…';
+    try {
+      await api.assets.uploadVersion(asset.id, formData);
+      toast('Ny version uploadet', 'success');
+      closeModal();
+      openAssetDetail(asset.id, contextList);
+      loadAssetResults();
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = `${icon('upload', 'icon icon-sm')} Upload ny version`;
+    }
   });
 
   document.getElementById('save-meta-btn')?.addEventListener('click', async () => {

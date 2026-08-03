@@ -25,6 +25,29 @@ router.get('/login', async (req, res, next) => {
   }
 });
 
+function accessDeniedPage(name) {
+  return `<!doctype html>
+<html lang="da"><head><meta charset="UTF-8"><title>Adgang nægtet - Hjorthene Assets</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fbedcf;
+    display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: #5c3a16; }
+  .card { background: #fffcf4; border: 1px solid #e8d3a0; border-radius: 16px; padding: 40px 36px;
+    max-width: 380px; text-align: center; box-shadow: 0 8px 24px rgba(92,58,22,0.14); }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  p { font-size: 13.5px; color: #93714a; line-height: 1.5; margin: 0 0 20px; }
+  a { display: inline-block; background: #e8a33d; color: #3a2103; text-decoration: none; font-weight: 600;
+    padding: 10px 20px; border-radius: 6px; font-size: 13px; }
+</style></head>
+<body>
+  <div class="card">
+    <h1>🦌 Adgang nægtet</h1>
+    <p>${name ? `Hej ${name} - d` : 'D'}u er logget ind via Authentik, men er ikke medlem af en gruppe med adgang til Hjorthene Assets.
+    Kontakt jeres administrator hvis du mener dette er en fejl.</p>
+    <a href="/">Prøv igen</a>
+  </div>
+</body></html>`;
+}
+
 router.get('/callback', async (req, res, next) => {
   try {
     const client = await getClient();
@@ -35,6 +58,11 @@ router.get('/callback', async (req, res, next) => {
     });
     const claims = tokenSet.claims();
     const role = mapRole(claims.groups);
+
+    if (!role) {
+      logEvent('access_denied', `${claims.name || claims.email || claims.sub} forsøgte at logge ind uden gyldigt gruppemedlemskab`, null);
+      return res.status(403).send(accessDeniedPage(claims.name));
+    }
 
     const existing = db.prepare('SELECT * FROM users WHERE sub = ?').get(claims.sub);
     let user;

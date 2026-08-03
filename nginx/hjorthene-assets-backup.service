@@ -6,4 +6,4 @@ After=network.target
 [Service]
 Type=oneshot
 User=assets
-ExecStart=/opt/hjorthene-assets/scripts/backup.sh
+ExecStart=/bin/bash /opt/hjorthene-assets/scripts/backup.sh

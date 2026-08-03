@@ -97,6 +97,28 @@ if (!assetColumns.includes('exif_json')) {
 if (!assetColumns.includes('ocr_text')) {
   db.exec('ALTER TABLE assets ADD COLUMN ocr_text TEXT');
 }
+if (!assetColumns.includes('processing')) {
+  db.exec('ALTER TABLE assets ADD COLUMN processing INTEGER DEFAULT 0');
+}
+if (!assetColumns.includes('phash')) {
+  db.exec('ALTER TABLE assets ADD COLUMN phash TEXT');
+}
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS asset_versions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  version_number INTEGER NOT NULL,
+  filename TEXT NOT NULL,
+  original_name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  mime TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  uploader_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_asset_versions_asset ON asset_versions(asset_id);
+`);
 
 // Default settings
 const defaultSettings = {
