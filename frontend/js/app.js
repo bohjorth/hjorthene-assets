@@ -26,6 +26,25 @@ function showLoginScreen() {
   document.getElementById('login-btn').addEventListener('click', () => {
     window.location.href = '/auth/login';
   });
+
+  document.getElementById('local-login-toggle').addEventListener('click', () => {
+    document.getElementById('local-login-form').classList.toggle('hidden');
+  });
+
+  document.getElementById('local-login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('local-login-email').value.trim();
+    const password = document.getElementById('local-login-password').value;
+    const errorEl = document.getElementById('local-login-error');
+    errorEl.classList.add('hidden');
+    try {
+      await api.localLogin(email, password);
+      window.location.reload();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Login fejlede';
+      errorEl.classList.remove('hidden');
+    }
+  });
 }
 
 function showApp() {

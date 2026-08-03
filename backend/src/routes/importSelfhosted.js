@@ -8,6 +8,7 @@ const { requireAuth, requireRole } = require('../middleware/roles');
 const { logEvent } = require('../utils/log');
 const { normalizeSvg } = require('../utils/svg');
 const { autoCropSvg } = require('../utils/svgCrop');
+const { generateThumbnail } = require('../utils/thumbnail');
 const CATALOG = require('../data/selfhostedIcons');
 
 const router = express.Router();
@@ -79,14 +80,23 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
 
       const catFolder = findOrCreateFolder(item.category, rootFolder.id);
       const filename = `${crypto.randomBytes(8).toString('hex')}.svg`;
-      fs.writeFileSync(path.join(config.uploadDir, filename), buffer);
+      const filePath = path.join(config.uploadDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
+      let hasThumbnail = 0;
+      try {
+        await generateThumbnail(filePath, path.join(config.uploadDir, `${filename}.thumb.jpg`));
+        hasThumbnail = 1;
+      } catch (err) {
+        console.error(`Thumbnail-generering fejlede for ${item.label}:`, err.message);
+      }
 
       const info = db
         .prepare(
-          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id)
-           VALUES (?, ?, ?, 'image/svg+xml', 'Billeder', ?, ?, ?)`
+          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id, has_thumbnail)
+           VALUES (?, ?, ?, 'image/svg+xml', 'Billeder', ?, ?, ?, ?)`
         )
-        .run(filename, item.filename, buffer.length, sha256, catFolder.id, req.session.user.id);
+        .run(filename, item.filename, buffer.length, sha256, catFolder.id, req.session.user.id, hasThumbnail);
 
       const catTag = getOrCreateTag(item.category);
       db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(info.lastInsertRowid, selfhostedTag.id);
@@ -203,14 +213,23 @@ router.post('/icons', requireAuth, requireRole('editor'), async (req, res, next)
       }
 
       const filename = `${crypto.randomBytes(8).toString('hex')}.svg`;
-      fs.writeFileSync(path.join(config.uploadDir, filename), buffer);
+      const filePath = path.join(config.uploadDir, filename);
+      fs.writeFileSync(filePath, buffer);
+
+      let hasThumbnail = 0;
+      try {
+        await generateThumbnail(filePath, path.join(config.uploadDir, `${filename}.thumb.jpg`));
+        hasThumbnail = 1;
+      } catch (err) {
+        console.error(`Thumbnail-generering fejlede for ${label}:`, err.message);
+      }
 
       const info = db
         .prepare(
-          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id)
-           VALUES (?, ?, ?, 'image/svg+xml', 'Billeder', ?, ?, ?)`
+          `INSERT INTO assets (filename, original_name, size, mime, category, sha256, folder_id, uploader_id, has_thumbnail)
+           VALUES (?, ?, ?, 'image/svg+xml', 'Billeder', ?, ?, ?, ?)`
         )
-        .run(filename, `${name}.svg`, buffer.length, sha256, rootFolder.id, req.session.user.id);
+        .run(filename, `${name}.svg`, buffer.length, sha256, rootFolder.id, req.session.user.id, hasThumbnail);
 
       db.prepare('INSERT OR IGNORE INTO asset_tags (asset_id, tag_id) VALUES (?, ?)').run(info.lastInsertRowid, selfhostedTag.id);
       imported.push(label);

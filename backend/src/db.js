@@ -104,6 +104,14 @@ if (!assetColumns.includes('phash')) {
   db.exec('ALTER TABLE assets ADD COLUMN phash TEXT');
 }
 
+const userColumns = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+if (!userColumns.includes('password_hash')) {
+  db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
+}
+if (!userColumns.includes('is_local')) {
+  db.exec('ALTER TABLE users ADD COLUMN is_local INTEGER DEFAULT 0');
+}
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS asset_versions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

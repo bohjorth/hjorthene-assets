@@ -21,6 +21,14 @@ async function apiFetch(path, options = {}) {
 const api = {
   me: () => apiFetch('/auth/me'),
   logout: () => apiFetch('/auth/logout', { method: 'POST' }),
+  localLogin: (email, password) => apiFetch('/auth/local-login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+
+  localUsers: {
+    list: () => apiFetch('/api/admin/local-users'),
+    create: (body) => apiFetch('/api/admin/local-users', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => apiFetch(`/api/admin/local-users/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (id) => apiFetch(`/api/admin/local-users/${id}`, { method: 'DELETE' }),
+  },
 
   dashboard: () => apiFetch('/api/dashboard'),
 

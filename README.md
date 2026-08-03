@@ -229,6 +229,14 @@ sudo journalctl -u hjorthene-assets-backup.service -n 20 --no-pager
   asset-ID og URL bevares) via "Upload ny version" i detaljevisningen. Tidligere
   versioner listes med dato/størrelse/uploader og kan downloades separat.
 
+## Lokale test-brugere
+
+Admin kan under **Administration** oprette lokale test-brugere (navn, email, password,
+rolle), som logger ind helt uden om Authentik via "Log ind med lokal test-bruger" på
+login-siden. Tænkt til test og nødadgang (hvis Authentik fx er nede) - ikke til normal
+daglig brug. Password hashes med Node's indbyggede `crypto.scrypt` (ingen ekstra
+afhængighed). Password kan nulstilles og brugeren slettes fra samme panel.
+
 ## Roller
 
 | Rolle | Rettigheder |

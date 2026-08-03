@@ -17,6 +17,18 @@
     <h1>Assets</h1>
     <p>Log ind for at få adgang til jeres filarkiv.</p>
     <button id="login-btn" class="btn btn-primary btn-block">Log ind med Authentik</button>
+
+    <button id="local-login-toggle" class="local-login-toggle">Log ind med lokal test-bruger</button>
+    <form id="local-login-form" class="local-login-form hidden">
+      <div class="field">
+        <input type="email" id="local-login-email" placeholder="Email" required />
+      </div>
+      <div class="field">
+        <input type="password" id="local-login-password" placeholder="Password" required />
+      </div>
+      <button type="submit" class="btn btn-ghost btn-block">Log ind lokalt</button>
+      <p id="local-login-error" class="local-login-error hidden"></p>
+    </form>
   </div>
 </div>
 

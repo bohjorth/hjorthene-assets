@@ -332,6 +332,7 @@ function renderBulkToolbar() {
     <div class="bulk-bar">
       <span class="bulk-bar-count">${n} valgt</span>
       <button class="btn btn-ghost btn-sm" id="bulk-zip-btn">${icon('download', 'icon icon-sm')} Download som ZIP</button>
+      ${canEdit ? `<button class="btn btn-ghost btn-sm" id="bulk-collection-btn">${icon('collections', 'icon icon-sm')} Tilføj til collection</button>` : ''}
       ${canEdit ? `<button class="btn btn-ghost btn-sm" id="bulk-move-btn">${icon('folder', 'icon icon-sm')} Flyt til mappe</button>` : ''}
       ${canEdit ? `<button class="btn btn-ghost btn-sm" id="bulk-tag-btn">${icon('tag', 'icon icon-sm')} Tilføj tag</button>` : ''}
       ${canEdit ? `<button class="btn btn-danger btn-sm" id="bulk-delete-btn">${icon('trash', 'icon icon-sm')} Slet</button>` : ''}
@@ -346,6 +347,10 @@ function renderBulkToolbar() {
   document.getElementById('bulk-clear-btn').addEventListener('click', () => {
     assetsState.selected.clear();
     loadAssetResults();
+  });
+
+  document.getElementById('bulk-collection-btn')?.addEventListener('click', () => {
+    openAddToCollectionModal(Array.from(assetsState.selected));
   });
 
   document.getElementById('bulk-move-btn')?.addEventListener('click', () => {
@@ -721,6 +726,61 @@ function showImportResult(result) {
   loadTagFilters();
 }
 
+// ---------- Tilføj asset(s) til en collection ----------
+async function openAddToCollectionModal(assetIds) {
+  openModal(`
+    <div class="modal-header"><h3>${icon('collections')} Tilføj til collection</h3><button class="modal-close">${icon('close')}</button></div>
+    <div class="modal-body" id="add-to-collection-body"><div class="section-sub">Indlæser…</div></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Luk</button>
+    </div>
+  `);
+
+  const body = document.getElementById('add-to-collection-body');
+  const { collections } = await api.collections.list();
+
+  body.innerHTML = `
+    ${collections.length ? collections.map((c) => `
+      <div class="version-row">
+        <span>${icon('collections', 'icon icon-sm')} ${escapeHtml(c.name)} <span class="mono" style="color:var(--text-faint);">(${c.asset_count})</span></span>
+        <button class="btn btn-ghost btn-sm" data-add-to-collection="${c.id}">Tilføj</button>
+      </div>
+    `).join('') : `<p class="section-sub" style="margin:0 0 12px;">Ingen collections endnu.</p>`}
+    <div class="field" style="margin-top:14px; border-top:1px solid var(--border-soft); padding-top:14px;">
+      <label>Eller opret en ny</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="new-collection-name" placeholder="Navn på ny collection" style="flex:1;" />
+        <button class="btn btn-primary btn-sm" id="create-and-add-btn">Opret og tilføj</button>
+      </div>
+    </div>
+  `;
+
+  body.querySelectorAll('[data-add-to-collection]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const collectionId = btn.dataset.addToCollection;
+      try {
+        for (const assetId of assetIds) {
+          await api.collections.addAsset(collectionId, assetId);
+        }
+        toast('Tilføjet til collection', 'success');
+        closeModal();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+  });
+  document.getElementById('create-and-add-btn').addEventListener('click', async () => {
+    const name = document.getElementById('new-collection-name').value.trim();
+    if (!name) return;
+    try {
+      const { collection } = await api.collections.create({ name });
+      for (const assetId of assetIds) {
+        await api.collections.addAsset(collection.id, assetId);
+      }
+      toast(`Collection oprettet og ${assetIds.length} asset(s) tilføjet`, 'success');
+      closeModal();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
 // ---------- Asset detail modal ----------
 async function openAssetDetail(id, contextList) {
   const { asset } = await api.assets.get(id);
@@ -820,6 +880,7 @@ async function openAssetDetail(id, contextList) {
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" id="copy-url-btn">${icon('copy')} Kopiér URL</button>
+      <button class="btn btn-ghost" id="add-to-collection-btn">${icon('collections')} Tilføj til collection</button>
       <a class="btn btn-ghost" href="/api/assets/${asset.id}/download">${icon('download')} Download</a>
       ${canEdit ? `<button class="btn btn-primary" id="save-meta-btn">${icon('check')} Gem ændringer</button>` : ''}
       ${canEdit ? `<button class="btn btn-danger" id="delete-asset-btn">${icon('trash')} Slet</button>` : ''}
@@ -860,6 +921,8 @@ async function openAssetDetail(id, contextList) {
     const success = await copyToClipboard(url);
     toast(success ? 'URL kopieret' : 'Kunne ikke kopiere URL', success ? 'success' : 'error');
   });
+
+  document.getElementById('add-to-collection-btn').addEventListener('click', () => openAddToCollectionModal([asset.id]));
 
   // Versionshistorik indlæses separat (ikke nødvendigt for de fleste assets,
   // så vi undgår at gøre selve detalje-visningen langsommere).

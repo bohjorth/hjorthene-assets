@@ -3,6 +3,7 @@ const { getClient, newState, newNonce, mapRole } = require('../auth/oidc');
 const config = require('../config');
 const db = require('../db');
 const { logEvent } = require('../utils/log');
+const { verifyPassword } = require('../utils/password');
 
 const router = express.Router();
 
@@ -14,7 +15,6 @@ router.get('/login', async (req, res, next) => {
     const nonce = newNonce();
     req.session.oidcState = state;
     req.session.oidcNonce = nonce;
-    console.log(`[auth debug] /login - sessionID=${req.sessionID} state=${state} secure=${req.secure} proto=${req.headers['x-forwarded-proto']}`);
     const url = client.authorizationUrl({
       scope: 'openid profile email groups',
       state,
@@ -49,9 +49,26 @@ function accessDeniedPage(name) {
 </body></html>`;
 }
 
+// Lokal login til test-brugere oprettet af en admin (se /api/admin/local-users).
+// Helt uafhængig af Authentik - tænkt til test/nødadgang, ikke almindelig brug.
+router.post('/local-login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email og password påkrævet' });
+
+  const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_local = 1').get(email);
+  if (!user || !verifyPassword(password, user.password_hash)) {
+    logEvent('login_failed', `Mislykket lokalt login-forsøg for ${email}`, null);
+    return res.status(401).json({ error: 'Forkert email eller password' });
+  }
+
+  db.prepare("UPDATE users SET last_login_at = datetime('now') WHERE id = ?").run(user.id);
+  req.session.user = { id: user.id, email: user.email, name: user.name, role: user.role };
+  logEvent('login', `${user.name} logged in (lokal test-bruger)`, user.id);
+  res.json({ user: req.session.user });
+});
+
 router.get('/callback', async (req, res, next) => {
   try {
-    console.log(`[auth debug] /callback - sessionID=${req.sessionID} session.oidcState=${req.session.oidcState} query.state=${req.query.state} cookie-header=${req.headers.cookie}`);
     const client = await getClient();
     const params = client.callbackParams(req);
     const tokenSet = await client.callback(config.authentik.redirectUri, params, {
@@ -91,8 +108,11 @@ router.get('/callback', async (req, res, next) => {
 router.post('/logout', (req, res) => {
   const user = req.session.user;
   if (user) logEvent('logout', `${user.name} logged out`, user.id);
+  const wasLocalUser = user
+    ? db.prepare('SELECT is_local FROM users WHERE id = ?').get(user.id)?.is_local === 1
+    : false;
   req.session.destroy(() => {
-    if (config.devNoAuth) return res.json({ logoutUrl: '/' });
+    if (config.devNoAuth || wasLocalUser) return res.json({ logoutUrl: '/' });
     const issuer = config.authentik.issuerUrl.replace(/\/$/, '');
     const logoutUrl = `${issuer}/end-session/?redirect_uri=${encodeURIComponent(
       config.authentik.logoutRedirect

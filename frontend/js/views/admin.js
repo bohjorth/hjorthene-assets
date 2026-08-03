@@ -47,6 +47,17 @@ async function renderAdmin(root) {
     </div>
 
     <div class="panel">
+      <div class="row-between">
+        <h3 class="section-title" style="font-size:13px;margin:0;">Lokale test-brugere</h3>
+        <button class="btn btn-ghost btn-sm" id="new-local-user-btn">${icon('plus', 'icon icon-sm')} Opret</button>
+      </div>
+      <p class="section-sub" style="margin:8px 0 12px;">
+        Logger ind uden om Authentik - til test eller nødadgang. Findes under "Log ind med lokal test-bruger" på login-siden.
+      </p>
+      <div id="local-users-body"><div class="section-sub">Indlæser…</div></div>
+    </div>
+
+    <div class="panel">
       <h3 class="section-title" style="font-size:13px;">Log</h3>
       <table class="asset-table">
         <thead><tr><th>Tidspunkt</th><th>Type</th><th>Bruger</th><th>Besked</th></tr></thead>
@@ -68,6 +79,96 @@ async function renderAdmin(root) {
     try {
       await api.admin.backup();
       toast('Backup gennemført', 'success');
+    } catch (e) { toast(e.message, 'error'); }
+  });
+
+  loadLocalUsers();
+  document.getElementById('new-local-user-btn').addEventListener('click', openNewLocalUserModal);
+}
+
+async function loadLocalUsers() {
+  const body = document.getElementById('local-users-body');
+  if (!body) return;
+  const { users } = await api.localUsers.list();
+  if (!users.length) {
+    body.innerHTML = `<p class="section-sub" style="margin:0;">Ingen lokale test-brugere oprettet endnu.</p>`;
+    return;
+  }
+  body.innerHTML = `
+    <table class="asset-table">
+      <thead><tr><th>Navn</th><th>Email</th><th>Rolle</th><th>Sidst logget ind</th><th></th></tr></thead>
+      <tbody>
+        ${users.map((u) => `
+          <tr style="cursor:default;">
+            <td>${escapeHtml(u.name)}</td>
+            <td class="mono">${escapeHtml(u.email)}</td>
+            <td><span class="badge badge-${u.role}">${u.role}</span></td>
+            <td class="mono">${u.last_login_at ? formatDate(u.last_login_at) : '—'}</td>
+            <td>
+              <button class="icon-btn-copy" data-reset-id="${u.id}" title="Nulstil password">${icon('edit', 'icon icon-sm')}</button>
+              <button class="icon-btn-copy" data-delete-id="${u.id}" title="Slet">${icon('trash', 'icon icon-sm')}</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+
+  body.querySelectorAll('[data-delete-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Slet denne lokale test-bruger?')) return;
+      try {
+        await api.localUsers.remove(btn.dataset.deleteId);
+        toast('Bruger slettet', 'success');
+        loadLocalUsers();
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  });
+
+  body.querySelectorAll('[data-reset-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const newPassword = prompt('Nyt password (mindst 8 tegn):');
+      if (!newPassword) return;
+      try {
+        await api.localUsers.update(btn.dataset.resetId, { password: newPassword });
+        toast('Password nulstillet', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+    });
+  });
+}
+
+function openNewLocalUserModal() {
+  openModal(`
+    <div class="modal-header"><h3>Opret lokal test-bruger</h3><button class="modal-close">${icon('close')}</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Navn</label><input type="text" id="lu-name" /></div>
+      <div class="field"><label>Email</label><input type="email" id="lu-email" /></div>
+      <div class="field"><label>Password (mindst 8 tegn)</label><input type="password" id="lu-password" /></div>
+      <div class="field">
+        <label>Rolle</label>
+        <select id="lu-role" class="select-inline" style="width:100%;">
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost modal-close">Annuller</button>
+      <button class="btn btn-primary" id="create-local-user-btn">Opret</button>
+    </div>
+  `);
+  document.getElementById('create-local-user-btn').addEventListener('click', async () => {
+    const name = document.getElementById('lu-name').value.trim();
+    const email = document.getElementById('lu-email').value.trim();
+    const password = document.getElementById('lu-password').value;
+    const role = document.getElementById('lu-role').value;
+    if (!name || !email || !password) return toast('Udfyld alle felter', 'error');
+    try {
+      await api.localUsers.create({ name, email, password, role });
+      toast('Lokal test-bruger oprettet', 'success');
+      closeModal();
+      loadLocalUsers();
     } catch (e) { toast(e.message, 'error'); }
   });
 }
