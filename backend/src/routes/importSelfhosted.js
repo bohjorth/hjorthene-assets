@@ -8,7 +8,7 @@ const { requireAuth, requireRole } = require('../middleware/roles');
 const { logEvent } = require('../utils/log');
 const { normalizeSvg } = require('../utils/svg');
 const { autoCropSvg } = require('../utils/svgCrop');
-const { generateThumbnail } = require('../utils/thumbnail');
+const { generateSvgThumbnail } = require('../utils/svgThumbnail');
 const CATALOG = require('../data/selfhostedIcons');
 
 const router = express.Router();
@@ -85,7 +85,7 @@ router.post('/', requireAuth, requireRole('editor'), async (req, res, next) => {
 
       let hasThumbnail = 0;
       try {
-        await generateThumbnail(filePath, path.join(config.uploadDir, `${filename}.thumb.jpg`));
+        await generateSvgThumbnail(buffer, path.join(config.uploadDir, `${filename}.thumb.jpg`));
         hasThumbnail = 1;
       } catch (err) {
         console.error(`Thumbnail-generering fejlede for ${item.label}:`, err.message);
@@ -218,7 +218,7 @@ router.post('/icons', requireAuth, requireRole('editor'), async (req, res, next)
 
       let hasThumbnail = 0;
       try {
-        await generateThumbnail(filePath, path.join(config.uploadDir, `${filename}.thumb.jpg`));
+        await generateSvgThumbnail(buffer, path.join(config.uploadDir, `${filename}.thumb.jpg`));
         hasThumbnail = 1;
       } catch (err) {
         console.error(`Thumbnail-generering fejlede for ${label}:`, err.message);

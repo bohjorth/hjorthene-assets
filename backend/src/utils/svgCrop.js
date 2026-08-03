@@ -80,4 +80,4 @@ async function autoCropSvg(buffer) {
   }
 }
 
-module.exports = { autoCropSvg };
+module.exports = { autoCropSvg, getBrowser };

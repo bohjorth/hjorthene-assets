@@ -80,6 +80,7 @@ const api = {
   admin: {
     status: () => apiFetch('/api/admin/status'),
     backup: () => apiFetch('/api/admin/backup', { method: 'POST' }),
+    generateMissingThumbnails: () => apiFetch('/api/admin/generate-missing-thumbnails', { method: 'POST' }),
   },
 
   logs: {

@@ -11,6 +11,7 @@ const { requireAuth, requireRole } = require('../middleware/roles');
 const { categorize } = require('../utils/categorize');
 const { logEvent } = require('../utils/log');
 const { generateThumbnail, generateVideoThumbnail } = require('../utils/thumbnail');
+const { generateSvgThumbnail } = require('../utils/svgThumbnail');
 const { extractExif } = require('../utils/exif');
 const { extractPdfText, extractImageText } = require('../utils/textExtract');
 const { suggestTags } = require('../utils/aiTagging');
@@ -154,7 +155,15 @@ router.post('/upload', requireAuth, requireRole('editor'), upload.array('files',
       const isVideo = mimeType.startsWith('video/');
 
       let hasThumbnail = 0;
-      if (isImage) {
+      if (mimeType === 'image/svg+xml') {
+        try {
+          const svgBuffer = fs.readFileSync(filePath);
+          await generateSvgThumbnail(svgBuffer, path.join(config.uploadDir, `${file.filename}.thumb.jpg`));
+          hasThumbnail = 1;
+        } catch (err) {
+          console.error(`SVG-thumbnail fejlede for ${file.originalname}:`, err.message);
+        }
+      } else if (isImage) {
         try {
           await generateThumbnail(filePath, path.join(config.uploadDir, `${file.filename}.thumb.jpg`));
           hasThumbnail = 1;
@@ -469,7 +478,13 @@ router.post('/:id/versions', requireAuth, requireRole('editor'), upload.single('
       fs.unlink(path.join(config.uploadDir, `${asset.filename}.thumb.jpg`), () => {});
     }
     let hasThumbnail = 0;
-    if (isImage) {
+    if (mimeType === 'image/svg+xml') {
+      try {
+        const svgBuffer = fs.readFileSync(newFilePath);
+        await generateSvgThumbnail(svgBuffer, path.join(config.uploadDir, `${req.file.filename}.thumb.jpg`));
+        hasThumbnail = 1;
+      } catch (err) { /* spring stille over */ }
+    } else if (isImage) {
       try {
         await generateThumbnail(newFilePath, path.join(config.uploadDir, `${req.file.filename}.thumb.jpg`));
         hasThumbnail = 1;

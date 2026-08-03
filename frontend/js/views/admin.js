@@ -1,6 +1,6 @@
 async function renderAdmin(root) {
   root.innerHTML = `<div class="empty-state">Indlæser…</div>`;
-  const [{ database, storage_used_bytes, file_count, user_count, disk }, { logs }] = await Promise.all([
+  const [{ database, storage_used_bytes, file_count, user_count, disk, missing_thumbnails }, { logs }] = await Promise.all([
     api.admin.status(),
     api.logs.list({ limit: 50 }),
   ]);
@@ -46,6 +46,19 @@ async function renderAdmin(root) {
       </p>
     </div>
 
+    ${missing_thumbnails > 0 ? `
+      <div class="panel">
+        <div class="row-between">
+          <h3 class="section-title" style="font-size:13px;margin:0;">Manglende thumbnails</h3>
+          <button class="btn btn-ghost btn-sm" id="gen-thumbnails-btn">${icon('assets', 'icon icon-sm')} Generér ${missing_thumbnails} manglende</button>
+        </div>
+        <p class="section-sub" style="margin:8px 0 0;">
+          ${missing_thumbnails} billede(r)/video(er) mangler en thumbnail (fx importeret før funktionen fandtes).
+          Genererer dem uden at røre selve filerne.
+        </p>
+      </div>
+    ` : ''}
+
     <div class="panel">
       <div class="row-between">
         <h3 class="section-title" style="font-size:13px;margin:0;">Lokale test-brugere</h3>
@@ -80,6 +93,21 @@ async function renderAdmin(root) {
       await api.admin.backup();
       toast('Backup gennemført', 'success');
     } catch (e) { toast(e.message, 'error'); }
+  });
+
+  document.getElementById('gen-thumbnails-btn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.textContent = 'Genererer…';
+    try {
+      const result = await api.admin.generateMissingThumbnails();
+      toast(`${result.succeeded} thumbnails genereret${result.failed ? `, ${result.failed} fejlede` : ''}`, 'success');
+      renderAdmin(document.getElementById('view-root'));
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+      btn.innerHTML = `${icon('assets', 'icon icon-sm')} Generér manglende`;
+    }
   });
 
   loadLocalUsers();

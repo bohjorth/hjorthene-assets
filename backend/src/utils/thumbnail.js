@@ -11,6 +11,7 @@ async function generateThumbnail(inputPath, outputPath, size = 400) {
   await sharp(inputPath)
     .rotate()
     .resize(size, size, { fit: 'inside', withoutEnlargement: true })
+    .flatten({ background: '#fffcf4' }) // undgå sharps sorte standard-baggrund ved transparente billeder
     .jpeg({ quality: 82 })
     .toFile(outputPath);
 }
