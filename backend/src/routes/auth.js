@@ -85,7 +85,9 @@ router.get('/callback', async (req, res, next) => {
       nonce: req.session.oidcNonce,
     });
     const claims = tokenSet.claims();
+    console.log(`[role debug] ${claims.email || claims.sub} - groups claim:`, JSON.stringify(claims.groups));
     const role = mapRole(claims.groups);
+    console.log(`[role debug] ${claims.email || claims.sub} - mapRole() returnerede:`, role);
 
     if (!role) {
       logEvent('access_denied', `${claims.name || claims.email || claims.sub} forsøgte at logge ind uden gyldigt gruppemedlemskab`, null);
